@@ -39,9 +39,7 @@ export class Window {
 }
 
 
-// todo in future we dont want the user to allow doing this
 export function runApp({ entryFilePath, title = "Usumaki" }: { entryFilePath: string, title?: string }) {
-  process.title = title
   let app = new Application();
 
   process.on("SIGINT", () => { });
