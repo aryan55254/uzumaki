@@ -3,8 +3,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "usumaki src/index.tsx",
-    "build": "usumaki build src/index.tsx"
+    "start": "usumaki src/index.tsx"
   },
   "devDependencies": {
     "@types/bun": "latest"

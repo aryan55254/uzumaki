@@ -61,49 +61,5 @@ function normalizePathWindows(path: string): string {
 }
 
 async function build(entryPoint: string) {
-  const entryFile = resolveEntryPoint(entryPoint);
-
-  if (!(await Bun.file(entryFile).exists())) {
-    console.error(`entry point not found: ${entryPoint}`);
-    process.exit(1);
-  }
-  // create a wrapper js function so that we can run the app
-
-  const code = `
-    import { runApp } from 'usumaki';
-    runApp({ entryFilePath: './index' });
-  `;
-
-  await $`mkdir -p dist`;
-
-  await $`echo '${code}' > dist/launch.js`;
-
-  await Bun.build({
-    entrypoints: [
-      path.resolve(process.cwd(), 'dist/launch.js'),
-      fileURLToPath(new URL('./main.ts', import.meta.url)),
-      entryFile,
-      /** main worker */
-    ],
-    naming: '[name].[ext]',
-    external: ['usumaki'],
-    splitting: true,
-    target: 'bun',
-    outdir: 'dist',
-  });
-
-  await Bun.build({
-    entrypoints: ['dist/launch.js', 'dist/main.js', 'dist/index.js'],
-    splitting: true,
-    compile: true,
-    naming: '[name].[ext]',
-    target: 'bun',
-  });
-
-  // await Bun.build({
-  //   entrypoints: ['dist/launch.js', 'dist/main'],
-  //   compile: true,
-  // });
-
-  // await $`rm -rf dist`;
+  throw new Error('Todo');
 }

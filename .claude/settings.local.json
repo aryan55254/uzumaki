@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"C:/Users/Radha/dev/kimi/usumaki\" && grep -A5 'name = \"vello\"' Cargo.lock | head -20)"
+    ]
+  }
+}

@@ -6,8 +6,15 @@ use parking_lot::Mutex;
 use winit::{
     application::ApplicationHandler,
     event_loop::{EventLoop, EventLoopProxy},
-    window::{Window, WindowId},
+    window::WindowId,
 };
+
+pub mod geometry;
+pub mod gpu;
+pub mod window;
+use window::Window;
+
+use crate::gpu::GpuContext;
 
 static LOOP_PROXY: Mutex<Option<EventLoopProxy<UserEvent>>> = Mutex::new(None);
 
@@ -20,9 +27,6 @@ enum UserEvent {
     },
     Quit,
 }
-
-#[napi(object)]
-struct JSWindowId(pub u32);
 
 #[napi(object)]
 pub struct WindowOptions {
@@ -57,7 +61,8 @@ pub fn request_quit() {
 pub struct Application {
     on_init: Option<Function<'static, ()>>,
     on_window_event: Option<Function<'static, ()>>,
-    windows: HashMap<WindowId, Arc<Window>>,
+    gpu: GpuContext,
+    windows: HashMap<WindowId, Window>,
     window_label_to_id: HashMap<String, WindowId>, // for js lookup
 }
 
@@ -65,7 +70,10 @@ pub struct Application {
 impl Application {
     #[napi(constructor)]
     pub fn new() -> Self {
+        let gpu = pollster::block_on(GpuContext::new()).expect("Failed to create GPU context");
+
         Self {
+            gpu,
             on_init: None,
             on_window_event: None,
             windows: Default::default(),
@@ -73,15 +81,22 @@ impl Application {
         }
     }
 
-    fn insert_window(&mut self, window: Arc<winit::window::Window>, label: String) {
+    fn insert_window(&mut self, winit_window: Arc<winit::window::Window>, label: String) {
         assert!(
             !self.window_label_to_id.contains_key(&label),
             "Window with label '{}' already exists",
             label
         );
 
-        self.window_label_to_id.insert(label, window.id());
-        self.windows.insert(window.id(), window);
+        match Window::new(&self.gpu, winit_window) {
+            Ok(window) => {
+                self.window_label_to_id.insert(label, window.id());
+                self.windows.insert(window.id(), window);
+            }
+            Err(e) => {
+                println!("Error creating window : {:#?}", e)
+            }
+        }
     }
 
     #[napi]
@@ -151,8 +166,7 @@ impl ApplicationHandler<UserEvent> for Application {
                 };
 
                 let window = Arc::new(winit_window);
-
-                self.windows.insert(window.id(), window);
+                self.insert_window(window, label);
             }
             UserEvent::Quit => {
                 self.windows.clear();
@@ -170,6 +184,18 @@ impl ApplicationHandler<UserEvent> for Application {
         use winit::event::WindowEvent;
 
         match event {
+            WindowEvent::Resized(size) => {
+                if let Some(window) = self.windows.get_mut(&window_id) {
+                    if window.on_resize(&self.gpu.device, size.width, size.height) {
+                        window.winit_window.request_redraw();
+                    }
+                }
+            }
+            WindowEvent::RedrawRequested => {
+                if let Some(window) = self.windows.get_mut(&window_id) {
+                    window.paint_and_present(&self.gpu.device, &self.gpu.queue);
+                }
+            }
             WindowEvent::CloseRequested => {
                 println!("Close this stupid app ");
                 self.windows.remove(&window_id);
