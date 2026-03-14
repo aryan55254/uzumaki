@@ -1,19 +1,28 @@
 import { useState } from 'react';
+import {
+  NAV_ACTIVE,
+  NAV_ITEM,
+  TEXT_COLOR,
+  ACCENT_BLUE,
+  ACCENT_GREEN,
+  ACCENT_ORANGE,
+  ACTIVE_BG,
+  BASE_BG,
+  BORDER,
+  HOVER_BG,
+  PANEL,
+  SUBTEXT,
+} from './styles';
 
-const BASE_BG = '#0f0f0f';
-const PANEL = '#141414';
-const BORDER = '#3c3c3c';
-const TEXT_COLOR = '#d4d4d4';
-const SUBTEXT = '#8c8c96';
-const ACCENT_BLUE = '#569cd6';
-const ACCENT_GREEN = '#66cc99';
-const ACCENT_ORANGE = '#ce9178';
-const NAV_ITEM = 'transparent';
-const NAV_ACTIVE = '#2d2d30';
-const HOVER_BG = '#373738ff';
-const ACTIVE_BG = '#414146';
-
-function NavItem({ label, active }: { label: string; active: boolean }) {
+function NavItem({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
     <view
       display="flex"
@@ -25,9 +34,9 @@ function NavItem({ label, active }: { label: string; active: boolean }) {
       rounded="6"
       hover:bg={HOVER_BG}
       active:bg={ACTIVE_BG}
-      onClick={() => console.log('Clicked:', label)}
+      onClick={onClick}
     >
-      <text fontSize="20" color={active ? TEXT_COLOR : SUBTEXT}>
+      <text fontSize="18" color={active ? TEXT_COLOR : SUBTEXT}>
         {label}
       </text>
     </view>
@@ -71,44 +80,60 @@ function App() {
     'dashboard' | 'analytics' | 'projects' | 'settings'
   >('dashboard');
 
+  function routeRenderer() {
+    switch (activeTab) {
+      case 'dashboard':
+        return <Dashboard />;
+      case 'analytics':
+        return <Analytics />;
+      case 'projects':
+        return <Projects />;
+      case 'settings':
+        return <Settings />;
+      default:
+        return null;
+    }
+  }
+
   return (
     <view display="flex" flexDir="col" w="full" h="full" bg={BASE_BG}>
-      {/* Header */}
-      <view
-        display="flex"
-        items="center"
-        h="48"
-        p="16"
-        bg={PANEL}
-        borderColor={BORDER}
-        border="1"
-      >
-        <text fontSize="18" color={ACCENT_BLUE} flexShrink="0">
-          Hello Uzumaki
-        </text>
-      </view>
-
       {/* Body */}
       <view display="flex" flexGrow="1" bg={BASE_BG}>
         {/* Sidebar */}
         <view
           display="flex"
           flexDir="col"
-          w="400"
+          w="300"
           p="12"
           gap="10"
           bg={PANEL}
           borderColor={BORDER}
           borderRight="1"
         >
-          <NavItem label="Dashboard" active={true} />
-          <NavItem label="Analytics" active={false} />
-          <NavItem label="Projects" active={false} />
-          <NavItem label="Settings" active={false} />
+          <NavItem
+            label="Dashboard"
+            active={true}
+            onClick={() => setActiveTab('dashboard')}
+          />
+          <NavItem
+            label="Analytics"
+            active={false}
+            onClick={() => setActiveTab('analytics')}
+          />
+          <NavItem
+            label="Projects"
+            active={false}
+            onClick={() => setActiveTab('projects')}
+          />
+          <NavItem
+            label="Settings"
+            active={false}
+            onClick={() => setActiveTab('settings')}
+          />
         </view>
 
         {/* Main content area */}
-        <Dashboard />
+        {routeRenderer()}
       </view>
 
       {/* Footer */}
@@ -129,9 +154,32 @@ function App() {
   );
 }
 
+function Projects() {
+  return (
+    <view display="flex" flexDir="col" flexGrow="1" p="16" gap="16">
+      <text fontSize="24" color={TEXT_COLOR}>
+        Projects
+      </text>
+    </view>
+  );
+}
+
+function Settings() {
+  return (
+    <view display="flex" flexDir="col" flexGrow="1" p="16" gap="16">
+      <text fontSize="24" color={TEXT_COLOR}>
+        Settings
+      </text>
+    </view>
+  );
+}
 function Analytics() {
   return (
-    <view display="flex" flexDir="col" flexGrow="1" p="16" gap="16"></view>
+    <view display="flex" flexDir="col" flexGrow="1" p="16" gap="16">
+      <text fontSize="24" color={TEXT_COLOR}>
+        Analytics
+      </text>
+    </view>
   );
 }
 
@@ -142,7 +190,7 @@ function Dashboard() {
   return (
     <view display="flex" flexDir="col" flexGrow="1" p="16" gap="16">
       {/* Page title */}
-      <text fontSize="60" color={TEXT_COLOR}>
+      <text fontSize="24" color={TEXT_COLOR}>
         Dashboard
       </text>
 

@@ -36,7 +36,7 @@ pub struct DomEventData {
 }
 
 #[napi]
-pub fn register_dom_event_listener(callback: ThreadsafeFunction<DomEventData>) {
+pub fn listen_app_events(callback: ThreadsafeFunction<DomEventData>) {
     let mut lock = DOM_EVENT_CB.lock();
     *lock = Some(callback);
 }

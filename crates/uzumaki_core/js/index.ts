@@ -73,6 +73,5 @@ export function runApp({
   app.run();
 
   worker.terminate();
-
   console.log('Bye');
 }
