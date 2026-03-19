@@ -59,6 +59,7 @@ pub struct InputState {
     pub placeholder: String,
     pub selection: Selection,
     pub scroll_offset: f32,
+    pub scroll_offset_y: f32,
     pub focused: bool,
     pub blink_reset: Instant,
     pub disabled: bool,
@@ -74,6 +75,7 @@ impl InputState {
             placeholder: String::new(),
             selection: Selection::new(),
             scroll_offset: 0.0,
+            scroll_offset_y: 0.0,
             focused: false,
             blink_reset: Instant::now(),
             disabled: false,
@@ -132,6 +134,7 @@ impl InputState {
         let count = self.grapheme_count();
         self.selection.set_cursor(count);
         self.scroll_offset = 0.0;
+        self.scroll_offset_y = 0.0;
     }
 
     pub fn insert_text(&mut self, ch: &str) -> Option<InputEdit> {
@@ -293,6 +296,21 @@ impl InputState {
         }
         if self.scroll_offset < 0.0 {
             self.scroll_offset = 0.0;
+        }
+    }
+
+    pub fn update_scroll_y(&mut self, cursor_y: f32, line_height: f32, visible_height: f32) {
+        if visible_height <= 0.0 {
+            return;
+        }
+        let cursor_bottom = cursor_y + line_height;
+        if cursor_y < self.scroll_offset_y {
+            self.scroll_offset_y = cursor_y;
+        } else if cursor_bottom > self.scroll_offset_y + visible_height {
+            self.scroll_offset_y = cursor_bottom - visible_height;
+        }
+        if self.scroll_offset_y < 0.0 {
+            self.scroll_offset_y = 0.0;
         }
     }
 

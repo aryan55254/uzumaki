@@ -10,6 +10,12 @@ use vello::{Glyph, Scene};
 
 type FontId = fontdb::ID;
 
+#[derive(Clone, Copy, Debug)]
+pub struct GlyphPos2D {
+    pub x: f32,
+    pub y: f32,
+}
+
 pub struct TextRenderer {
     pub font_system: FontSystem,
     // Maps cosmic-text font IDs to vello Fonts.
@@ -183,6 +189,112 @@ impl TextRenderer {
         best_idx
     }
 
+    /// Returns (x, y) positions for each grapheme boundary in multiline text.
+    /// `wrap_width` controls line wrapping. Result has `grapheme_count + 1` entries.
+    /// y values are line-top relative to buffer origin.
+    pub fn grapheme_positions_2d(
+        &mut self,
+        text: &str,
+        font_size: f32,
+        wrap_width: Option<f32>,
+    ) -> Vec<GlyphPos2D> {
+        if text.is_empty() {
+            return vec![GlyphPos2D { x: 0.0, y: 0.0 }];
+        }
+
+        let buffer = self.layout_buffer(text, Attrs::new(), font_size, wrap_width, None);
+
+        // Build byte_offset → (x, line_top) mapping from glyphs
+        let mut byte_pos: Vec<(usize, f32, f32)> = Vec::new();
+        byte_pos.push((0, 0.0, 0.0));
+
+        // Compute byte offset of each line start for mapping empty runs
+        let mut line_starts: Vec<usize> = vec![0];
+        for (i, ch) in text.char_indices() {
+            if ch == '\n' {
+                line_starts.push(i + 1);
+            }
+        }
+
+        for run in buffer.layout_runs() {
+            let line_top = run.line_top;
+
+            if run.glyphs.is_empty() {
+                // Empty line (e.g. after \n) — use line_i to find byte offset
+                let line_idx = run.line_i;
+                let byte_off = line_starts.get(line_idx).copied().unwrap_or(text.len());
+                byte_pos.push((byte_off, 0.0, line_top));
+            } else {
+                for glyph in run.glyphs.iter() {
+                    byte_pos.push((glyph.start, glyph.x, line_top));
+                    byte_pos.push((glyph.end, glyph.x + glyph.w, line_top));
+                }
+            }
+        }
+
+        byte_pos.sort_by_key(|&(off, _, _)| off);
+        byte_pos.dedup_by_key(|entry| entry.0);
+
+        // Map grapheme boundaries to (x, y)
+        let mut positions = Vec::new();
+        // Use the line_top of the first run for position 0 (not hardcoded 0.0)
+        let first_y = byte_pos.first().map(|&(_, _, y)| y).unwrap_or(0.0);
+        positions.push(GlyphPos2D { x: 0.0, y: first_y });
+
+        let mut byte_offset = 0;
+        for grapheme in text.graphemes(true) {
+            byte_offset += grapheme.len();
+            positions.push(lookup_byte_pos_2d(&byte_pos, byte_offset));
+        }
+
+
+        positions
+    }
+
+    /// Hit-test an (x, y) coordinate against multiline text layout.
+    pub fn hit_to_grapheme_2d(
+        &mut self,
+        text: &str,
+        font_size: f32,
+        wrap_width: Option<f32>,
+        x: f32,
+        y: f32,
+    ) -> usize {
+        let positions = self.grapheme_positions_2d(text, font_size, wrap_width);
+        let line_height = font_size * 1.2;
+
+        // Collect unique line y values
+        let mut line_ys: Vec<f32> = Vec::new();
+        for pos in &positions {
+            if line_ys.last().map_or(true, |&last| (pos.y - last).abs() > 1.0) {
+                line_ys.push(pos.y);
+            }
+        }
+
+        // Find which line the y coordinate falls on
+        let mut target_y = line_ys.first().copied().unwrap_or(0.0);
+        for &ly in &line_ys {
+            if y >= ly - 1.0 {
+                target_y = ly;
+            }
+        }
+        // If y is above all lines, use first; if below, use last (already handled)
+
+        // Among positions on that line, find closest x
+        let mut best_idx = 0;
+        let mut best_dist = f32::MAX;
+        for (i, pos) in positions.iter().enumerate() {
+            if (pos.y - target_y).abs() < line_height * 0.5 {
+                let dist = (pos.x - x).abs();
+                if dist < best_dist {
+                    best_dist = dist;
+                    best_idx = i;
+                }
+            }
+        }
+        best_idx
+    }
+
     pub fn measure_text(
         &mut self,
         text: &str,
@@ -213,6 +325,44 @@ impl TextRenderer {
         }
 
         (measured_width.ceil(), measured_height.ceil())
+    }
+}
+
+fn lookup_byte_pos_2d(byte_pos: &[(usize, f32, f32)], byte_offset: usize) -> GlyphPos2D {
+    match byte_pos.binary_search_by_key(&byte_offset, |&(off, _, _)| off) {
+        Ok(idx) => GlyphPos2D {
+            x: byte_pos[idx].1,
+            y: byte_pos[idx].2,
+        },
+        Err(idx) => {
+            if idx == 0 {
+                GlyphPos2D { x: 0.0, y: 0.0 }
+            } else if idx >= byte_pos.len() {
+                byte_pos
+                    .last()
+                    .map(|&(_, x, y)| GlyphPos2D { x, y })
+                    .unwrap_or(GlyphPos2D { x: 0.0, y: 0.0 })
+            } else {
+                let (off0, x0, y0) = byte_pos[idx - 1];
+                let (off1, x1, y1) = byte_pos[idx];
+                // If on different lines (line break), snap to nearest entry
+                if (y0 - y1).abs() > 1.0 {
+                    let d0 = byte_offset - off0;
+                    let d1 = off1 - byte_offset;
+                    if d0 <= d1 {
+                        GlyphPos2D { x: x0, y: y0 }
+                    } else {
+                        GlyphPos2D { x: x1, y: y1 }
+                    }
+                } else {
+                    let t = (byte_offset - off0) as f32 / (off1 - off0).max(1) as f32;
+                    GlyphPos2D {
+                        x: x0 + t * (x1 - x0),
+                        y: y0,
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -931,21 +931,46 @@ impl ApplicationHandler<UserEvent> for Application {
                                     })
                                 });
                                 if let Some((display_text, font_size, input_padding, cursor_pos, taffy_node)) = scroll_info {
-                                    let positions = handle.text_renderer.grapheme_x_positions(
-                                        &display_text,
-                                        font_size,
-                                    );
-                                    let cursor_x = if cursor_pos < positions.len() {
-                                        positions[cursor_pos]
+                                    let is_multiline = dom.nodes.get(focused_id)
+                                        .and_then(|n| n.input_state.as_ref())
+                                        .map(|is| is.multiline)
+                                        .unwrap_or(false);
+
+                                    let (input_width, input_height) = dom.taffy.layout(taffy_node)
+                                        .map(|l| (l.size.width as f32 - input_padding * 2.0, l.size.height as f32))
+                                        .unwrap_or((200.0, 100.0));
+
+                                    if is_multiline {
+                                        let positions = handle.text_renderer.grapheme_positions_2d(
+                                            &display_text,
+                                            font_size,
+                                            Some(input_width),
+                                        );
+                                        let cursor_y = if cursor_pos < positions.len() {
+                                            positions[cursor_pos].y
+                                        } else {
+                                            positions.last().map(|p| p.y).unwrap_or(0.0)
+                                        };
+                                        let line_height = font_size * 1.2;
+                                        if let Some(node) = dom.nodes.get_mut(focused_id) {
+                                            if let Some(is) = &mut node.input_state {
+                                                is.update_scroll_y(cursor_y, line_height, input_height);
+                                            }
+                                        }
                                     } else {
-                                        positions.last().copied().unwrap_or(0.0)
-                                    };
-                                    let input_width = dom.taffy.layout(taffy_node)
-                                        .map(|l| l.size.width as f32 - input_padding * 2.0)
-                                        .unwrap_or(200.0);
-                                    if let Some(node) = dom.nodes.get_mut(focused_id) {
-                                        if let Some(is) = &mut node.input_state {
-                                            is.update_scroll(cursor_x, input_width);
+                                        let positions = handle.text_renderer.grapheme_x_positions(
+                                            &display_text,
+                                            font_size,
+                                        );
+                                        let cursor_x = if cursor_pos < positions.len() {
+                                            positions[cursor_pos]
+                                        } else {
+                                            positions.last().copied().unwrap_or(0.0)
+                                        };
+                                        if let Some(node) = dom.nodes.get_mut(focused_id) {
+                                            if let Some(is) = &mut node.input_state {
+                                                is.update_scroll(cursor_x, input_width);
+                                            }
                                         }
                                     }
                                 }
@@ -984,22 +1009,34 @@ impl ApplicationHandler<UserEvent> for Application {
                                                 let display_text = is.display_text();
                                                 let font_size = node.style.text.font_size;
                                                 let scroll_offset = is.scroll_offset;
+                                                let scroll_offset_y = is.scroll_offset_y;
+                                                let is_multiline = is.multiline;
                                                 let padding = node.style.padding.left as f64;
                                                 let input_padding = if padding > 0.0 { padding } else { 8.0 };
                                                 let hitbox_bounds = node.interactivity.hitbox_id
                                                     .and_then(|hid| dom.hitbox_store.get(hid))
                                                     .map(|hb| hb.bounds);
-                                                (display_text, font_size, scroll_offset, input_padding, hitbox_bounds)
+                                                let taffy_node = node.taffy_node;
+                                                (display_text, font_size, scroll_offset, scroll_offset_y, is_multiline, input_padding, hitbox_bounds, taffy_node)
                                             })
                                         } else {
                                             None
                                         }
                                     };
 
-                                    if let Some((display_text, font_size, scroll_offset, input_padding, Some(hb))) = cursor_info {
-                                        let relative_x = (logical_x - hb.x - input_padding) as f32 + scroll_offset;
+                                    if let Some((display_text, font_size, scroll_offset, scroll_offset_y, is_multiline, input_padding, Some(hb), taffy_node)) = cursor_info {
                                         let grapheme_idx = if !display_text.is_empty() {
-                                            handle.text_renderer.hit_to_grapheme(&display_text, font_size, relative_x)
+                                            if is_multiline {
+                                                let wrap_width = dom.taffy.layout(taffy_node)
+                                                    .map(|l| l.size.width as f32 - input_padding as f32 * 2.0)
+                                                    .unwrap_or(200.0);
+                                                let relative_x = (logical_x - hb.x - input_padding) as f32;
+                                                let relative_y = (logical_y - hb.y) as f32 + scroll_offset_y - 4.0;
+                                                handle.text_renderer.hit_to_grapheme_2d(&display_text, font_size, Some(wrap_width), relative_x, relative_y)
+                                            } else {
+                                                let relative_x = (logical_x - hb.x - input_padding) as f32 + scroll_offset;
+                                                handle.text_renderer.hit_to_grapheme(&display_text, font_size, relative_x)
+                                            }
                                         } else {
                                             0
                                         };
@@ -1139,21 +1176,33 @@ impl ApplicationHandler<UserEvent> for Application {
                                                 let display_text = is.display_text();
                                                 let font_size = node.style.text.font_size;
                                                 let scroll_offset = is.scroll_offset;
+                                                let scroll_offset_y = is.scroll_offset_y;
+                                                let is_multiline = is.multiline;
                                                 let padding = node.style.padding.left as f64;
                                                 let input_padding = if padding > 0.0 { padding } else { 8.0 };
                                                 let hitbox_bounds = node.interactivity.hitbox_id
                                                     .and_then(|hid| dom.hitbox_store.get(hid))
                                                     .map(|hb| hb.bounds);
-                                                (display_text, font_size, scroll_offset, input_padding, hitbox_bounds)
+                                                let taffy_node = node.taffy_node;
+                                                (display_text, font_size, scroll_offset, scroll_offset_y, is_multiline, input_padding, hitbox_bounds, taffy_node)
                                             };
-                                            let (display_text, font_size, scroll_offset, input_padding, hitbox_bounds) = cursor_info;
+                                            let (display_text, font_size, scroll_offset, scroll_offset_y, is_multiline, input_padding, hitbox_bounds, taffy_node) = cursor_info;
 
                                             if let Some(hb) = hitbox_bounds {
-                                                let relative_x = (mx - hb.x - input_padding) as f32 + scroll_offset;
                                                 let text_renderer = entry.handle.as_mut().map(|h| &mut h.text_renderer);
                                                 if let Some(tr) = text_renderer {
                                                     let grapheme_idx = if !display_text.is_empty() {
-                                                        tr.hit_to_grapheme(&display_text, font_size, relative_x)
+                                                        if is_multiline {
+                                                            let wrap_width = dom.taffy.layout(taffy_node)
+                                                                .map(|l| l.size.width as f32 - input_padding as f32 * 2.0)
+                                                                .unwrap_or(200.0);
+                                                            let relative_x = (mx - hb.x - input_padding) as f32;
+                                                            let relative_y = (my - hb.y) as f32 + scroll_offset_y - 4.0;
+                                                            tr.hit_to_grapheme_2d(&display_text, font_size, Some(wrap_width), relative_x, relative_y)
+                                                        } else {
+                                                            let relative_x = (mx - hb.x - input_padding) as f32 + scroll_offset;
+                                                            tr.hit_to_grapheme(&display_text, font_size, relative_x)
+                                                        }
                                                     } else {
                                                         0
                                                     };

@@ -92,7 +92,9 @@ struct InputRenderInfo {
     sel_end: usize,
     cursor_pos: usize,
     scroll_offset: f32,
+    scroll_offset_y: f32,
     blink_visible: bool,
+    multiline: bool,
 }
 
 // Safety: Dom contains taffy's CompactLength which uses *const () as a tagged pointer
@@ -471,7 +473,9 @@ impl Dom {
                         sel_end: is.selection.end(),
                         cursor_pos: is.selection.active,
                         scroll_offset: is.scroll_offset,
+                        scroll_offset_y: is.scroll_offset_y,
                         blink_visible: is.blink_visible(self.window_focused),
+                        multiline: is.multiline,
                     }
                 })
             } else {
@@ -649,6 +653,8 @@ fn paint_input(
     input: &InputRenderInfo,
     scale: f64,
 ) {
+    use crate::text::GlyphPos2D;
+
     let padding: f64 = 8.0;
     let text_x = bounds.x + padding;
     let text_y = bounds.y;
@@ -683,88 +689,190 @@ fn paint_input(
 
     let is_empty = input.display_text.is_empty();
     let line_height = input.font_size * 1.2;
-    let text_offset_y = ((text_h as f32 - line_height) / 2.0).max(0.0);
 
-    // Compute glyph positions
-    let positions = if !is_empty {
-        text_renderer.grapheme_x_positions(&input.display_text, input.font_size)
-    } else {
-        vec![0.0]
-    };
+    if input.multiline {
+        // ── Multiline rendering ──
+        let top_pad: f32 = 4.0;
+        let wrap_width = Some(text_w as f32);
 
-    if is_empty && !input.placeholder.is_empty() {
-        // Draw placeholder
-        text_renderer.draw_text(
-            scene,
-            &input.placeholder,
-            Attrs::new(),
-            input.font_size,
-            text_w as f32,
-            text_h as f32,
-            (text_x as f32, text_y as f32 + text_offset_y),
-            VelloColor::from_rgba8(128, 128, 128, 255),
-            scale,
-        );
-    } else if !is_empty {
-        // Draw selection highlight
-        if input.sel_start != input.sel_end
-            && input.sel_start < positions.len()
-            && input.sel_end <= positions.len()
-        {
-            let x1 = (positions[input.sel_start] - input.scroll_offset) as f64;
-            let x2 = (positions[input.sel_end] - input.scroll_offset) as f64;
-            let sel_rect = Rect::new(
-                text_x + x1,
-                text_y + text_offset_y as f64,
-                text_x + x2,
-                text_y + text_offset_y as f64 + line_height as f64,
+        let positions = if !is_empty {
+            text_renderer.grapheme_positions_2d(&input.display_text, input.font_size, wrap_width)
+        } else {
+            vec![GlyphPos2D { x: 0.0, y: 0.0 }]
+        };
+
+        let scroll_y = input.scroll_offset_y;
+
+        if is_empty && !input.placeholder.is_empty() {
+            text_renderer.draw_text(
+                scene,
+                &input.placeholder,
+                Attrs::new(),
+                input.font_size,
+                text_w as f32,
+                text_h as f32,
+                (text_x as f32, text_y as f32 + top_pad - scroll_y),
+                VelloColor::from_rgba8(128, 128, 128, 255),
+                scale,
+            );
+        } else if !is_empty {
+            // Draw selection highlight (multi-line aware)
+            if input.sel_start != input.sel_end
+                && input.sel_start < positions.len()
+                && input.sel_end <= positions.len()
+            {
+                // Walk through selection and draw a rect per line segment
+                let mut seg_start = input.sel_start;
+                for i in (input.sel_start + 1)..=input.sel_end {
+                    let prev_y = positions[i - 1].y;
+                    let cur_y = if i < positions.len() { positions[i].y } else { prev_y + 999.0 };
+                    let line_break = (cur_y - prev_y).abs() > 1.0;
+                    let at_end = i == input.sel_end;
+
+                    if line_break || at_end {
+                        let rect_end = if line_break && !at_end { i } else { i };
+                        let sx = positions[seg_start].x as f64;
+                        let sy = positions[seg_start].y as f64 + top_pad as f64 - scroll_y as f64;
+                        let ex = if line_break && !at_end {
+                            text_w // extend to full width for mid-selection lines
+                        } else {
+                            positions[rect_end.min(positions.len() - 1)].x as f64
+                        };
+                        let sel_rect = Rect::new(
+                            text_x + sx,
+                            text_y + sy,
+                            text_x + ex,
+                            text_y + sy + line_height as f64,
+                        );
+                        scene.fill(
+                            Fill::NonZero,
+                            Affine::scale(scale),
+                            VelloColor::from_rgba8(56, 121, 185, 128),
+                            None,
+                            &sel_rect,
+                        );
+                        if line_break {
+                            seg_start = i;
+                        }
+                    }
+                }
+            }
+
+            // Draw text with wrapping
+            text_renderer.draw_text(
+                scene,
+                &input.display_text,
+                Attrs::new(),
+                input.font_size,
+                text_w as f32,
+                text_h as f32 + scroll_y + 10000.0,
+                (text_x as f32, text_y as f32 + top_pad - scroll_y),
+                input.text_color.to_vello(),
+                scale,
+            );
+        }
+
+        // Draw cursor (multiline)
+        if input.focused && input.blink_visible && input.cursor_pos < positions.len() {
+            let cp = &positions[input.cursor_pos];
+            let cursor_x = cp.x as f64;
+            let cursor_y = cp.y as f64 + top_pad as f64 - scroll_y as f64;
+            let cursor_rect = Rect::new(
+                text_x + cursor_x,
+                text_y + cursor_y + 2.0,
+                text_x + cursor_x + 1.5,
+                text_y + cursor_y + line_height as f64 - 2.0,
             );
             scene.fill(
                 Fill::NonZero,
                 Affine::scale(scale),
-                VelloColor::from_rgba8(56, 121, 185, 128),
+                VelloColor::from_rgba8(212, 212, 212, 255),
                 None,
-                &sel_rect,
+                &cursor_rect,
+            );
+        }
+    } else {
+        // ── Single-line rendering (unchanged) ──
+        let text_offset_y = ((text_h as f32 - line_height) / 2.0).max(0.0);
+
+        let positions = if !is_empty {
+            text_renderer.grapheme_x_positions(&input.display_text, input.font_size)
+        } else {
+            vec![0.0]
+        };
+
+        if is_empty && !input.placeholder.is_empty() {
+            text_renderer.draw_text(
+                scene,
+                &input.placeholder,
+                Attrs::new(),
+                input.font_size,
+                text_w as f32,
+                text_h as f32,
+                (text_x as f32, text_y as f32 + text_offset_y),
+                VelloColor::from_rgba8(128, 128, 128, 255),
+                scale,
+            );
+        } else if !is_empty {
+            // Draw selection highlight
+            if input.sel_start != input.sel_end
+                && input.sel_start < positions.len()
+                && input.sel_end <= positions.len()
+            {
+                let x1 = (positions[input.sel_start] - input.scroll_offset) as f64;
+                let x2 = (positions[input.sel_end] - input.scroll_offset) as f64;
+                let sel_rect = Rect::new(
+                    text_x + x1,
+                    text_y + text_offset_y as f64,
+                    text_x + x2,
+                    text_y + text_offset_y as f64 + line_height as f64,
+                );
+                scene.fill(
+                    Fill::NonZero,
+                    Affine::scale(scale),
+                    VelloColor::from_rgba8(56, 121, 185, 128),
+                    None,
+                    &sel_rect,
+                );
+            }
+
+            text_renderer.draw_text(
+                scene,
+                &input.display_text,
+                Attrs::new(),
+                input.font_size,
+                text_w as f32 + input.scroll_offset + 10000.0,
+                text_h as f32,
+                (
+                    text_x as f32 - input.scroll_offset,
+                    text_y as f32 + text_offset_y,
+                ),
+                input.text_color.to_vello(),
+                scale,
             );
         }
 
-        // Draw text (wide max_width so it doesn't wrap, clipping handles overflow)
-        text_renderer.draw_text(
-            scene,
-            &input.display_text,
-            Attrs::new(),
-            input.font_size,
-            text_w as f32 + input.scroll_offset + 10000.0,
-            text_h as f32,
-            (
-                text_x as f32 - input.scroll_offset,
-                text_y as f32 + text_offset_y,
-            ),
-            input.text_color.to_vello(),
-            scale,
-        );
-    }
-
-    // Draw cursor
-    if input.focused && input.blink_visible {
-        let cursor_x = if input.cursor_pos < positions.len() {
-            (positions[input.cursor_pos] - input.scroll_offset) as f64
-        } else {
-            0.0
-        };
-        let cursor_rect = Rect::new(
-            text_x + cursor_x,
-            text_y + text_offset_y as f64 + 2.0,
-            text_x + cursor_x + 1.5,
-            text_y + text_offset_y as f64 + line_height as f64 - 2.0,
-        );
-        scene.fill(
-            Fill::NonZero,
-            Affine::scale(scale),
-            VelloColor::from_rgba8(212, 212, 212, 255),
-            None,
-            &cursor_rect,
-        );
+        // Draw cursor
+        if input.focused && input.blink_visible {
+            let cursor_x = if input.cursor_pos < positions.len() {
+                (positions[input.cursor_pos] - input.scroll_offset) as f64
+            } else {
+                0.0
+            };
+            let cursor_rect = Rect::new(
+                text_x + cursor_x,
+                text_y + text_offset_y as f64 + 2.0,
+                text_x + cursor_x + 1.5,
+                text_y + text_offset_y as f64 + line_height as f64 - 2.0,
+            );
+            scene.fill(
+                Fill::NonZero,
+                Affine::scale(scale),
+                VelloColor::from_rgba8(212, 212, 212, 255),
+                None,
+                &cursor_rect,
+            );
+        }
     }
 
     scene.pop_layer();
