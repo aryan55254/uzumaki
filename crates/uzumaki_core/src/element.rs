@@ -688,11 +688,11 @@ fn paint_input(
     scene.push_clip_layer(Fill::NonZero, Affine::scale(scale), &clip_rect);
 
     let is_empty = input.display_text.is_empty();
-    let line_height = input.font_size * 1.2;
+    let line_height = (input.font_size * 1.2).round();
 
     if input.multiline {
         // ── Multiline rendering ──
-        let top_pad: f32 = 4.0;
+        let top_pad: f32 = if style.padding.top > 0.0 { style.padding.top } else { 4.0 };
         let wrap_width = Some(text_w as f32);
 
         let positions = if !is_empty {
@@ -722,39 +722,66 @@ fn paint_input(
                 && input.sel_start < positions.len()
                 && input.sel_end <= positions.len()
             {
-                // Walk through selection and draw a rect per line segment
-                let mut seg_start = input.sel_start;
-                for i in (input.sel_start + 1)..=input.sel_end {
-                    let prev_y = positions[i - 1].y;
-                    let cur_y = if i < positions.len() { positions[i].y } else { prev_y + 999.0 };
-                    let line_break = (cur_y - prev_y).abs() > 1.0;
-                    let at_end = i == input.sel_end;
+                let sel_color = VelloColor::from_rgba8(56, 121, 185, 128);
+                let start_pos = positions[input.sel_start];
+                let end_pos = positions[input.sel_end.min(positions.len() - 1)];
+                let same_line = (start_pos.y - end_pos.y).abs() < 1.0;
 
-                    if line_break || at_end {
-                        let rect_end = if line_break && !at_end { i } else { i };
-                        let sx = positions[seg_start].x as f64;
-                        let sy = positions[seg_start].y as f64 + top_pad as f64 - scroll_y as f64;
-                        let ex = if line_break && !at_end {
-                            text_w // extend to full width for mid-selection lines
-                        } else {
-                            positions[rect_end.min(positions.len() - 1)].x as f64
-                        };
-                        let sel_rect = Rect::new(
-                            text_x + sx,
-                            text_y + sy,
-                            text_x + ex,
-                            text_y + sy + line_height as f64,
-                        );
-                        scene.fill(
-                            Fill::NonZero,
-                            Affine::scale(scale),
-                            VelloColor::from_rgba8(56, 121, 185, 128),
-                            None,
-                            &sel_rect,
-                        );
-                        if line_break {
-                            seg_start = i;
+                if same_line {
+                    // Single-line selection
+                    let sy = start_pos.y as f64 + top_pad as f64 - scroll_y as f64;
+                    scene.fill(
+                        Fill::NonZero, Affine::scale(scale), sel_color, None,
+                        &Rect::new(
+                            text_x + start_pos.x as f64, text_y + sy,
+                            text_x + end_pos.x as f64, text_y + sy + line_height as f64,
+                        ),
+                    );
+                } else {
+                    // Multi-line selection: first line, middle lines, last line
+
+                    // First line: from sel_start.x to right edge
+                    let sy0 = start_pos.y as f64 + top_pad as f64 - scroll_y as f64;
+                    scene.fill(
+                        Fill::NonZero, Affine::scale(scale), sel_color, None,
+                        &Rect::new(
+                            text_x + start_pos.x as f64, text_y + sy0,
+                            text_x + text_w, text_y + sy0 + line_height as f64,
+                        ),
+                    );
+
+                    // Middle lines: full width for each unique line between first and last
+                    let mut mid_ys: Vec<f32> = Vec::new();
+                    for i in input.sel_start..=input.sel_end.min(positions.len() - 1) {
+                        let y = positions[i].y;
+                        if (y - start_pos.y).abs() > 1.0 && (y - end_pos.y).abs() > 1.0 {
+                            if mid_ys.last().map_or(true, |&ly| (y - ly).abs() > 1.0) {
+                                mid_ys.push(y);
+                            }
                         }
+                    }
+                    for &y in &mid_ys {
+                        let sy = y as f64 + top_pad as f64 - scroll_y as f64;
+                        scene.fill(
+                            Fill::NonZero, Affine::scale(scale), sel_color, None,
+                            &Rect::new(
+                                text_x, text_y + sy,
+                                text_x + text_w, text_y + sy + line_height as f64,
+                            ),
+                        );
+                    }
+
+                    // Last line: from left edge to sel_end.x
+                    let ex = end_pos.x as f64;
+                    if ex > 0.5 {
+                        let sy_last = end_pos.y as f64 + top_pad as f64 - scroll_y as f64;
+                        scene.fill(
+                            Fill::NonZero, Affine::scale(scale), sel_color, None,
+                            &Rect::new(
+                                text_x, text_y + sy_last,
+                                text_x + ex, text_y + sy_last + line_height as f64,
+                            ),
+                        );
                     }
                 }
             }
@@ -773,9 +800,13 @@ fn paint_input(
             );
         }
 
-        // Draw cursor (multiline)
-        if input.focused && input.blink_visible && input.cursor_pos < positions.len() {
-            let cp = &positions[input.cursor_pos];
+        // Draw cursor (multiline) — always try to render if focused
+        if input.focused && input.blink_visible && !positions.is_empty() {
+            let cp = if input.cursor_pos < positions.len() {
+                positions[input.cursor_pos]
+            } else {
+                *positions.last().unwrap()
+            };
             let cursor_x = cp.x as f64;
             let cursor_y = cp.y as f64 + top_pad as f64 - scroll_y as f64;
             let cursor_rect = Rect::new(

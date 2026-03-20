@@ -306,6 +306,7 @@ function Dashboard() {
 function InputDemo() {
   const [text, setText] = useState('');
   const [password, setPassword] = useState('');
+  const [multiText, setMultiText] = useState('');
 
   return (
     <view
@@ -327,6 +328,7 @@ function InputDemo() {
           placeholder="Type something..."
           fontSize="16"
           color={TEXT_COLOR}
+          value={text}
           onInput={(e) => setText(e.value)}
         />
         <text fontSize="14" color={SUBTEXT}>
@@ -340,6 +342,7 @@ function InputDemo() {
           fontSize="16"
           color={TEXT_COLOR}
           secure
+          value={password}
           onInput={(e) => setPassword(e.value)}
         />
         <text fontSize="14" color={SUBTEXT}>
@@ -356,7 +359,8 @@ function InputDemo() {
         fontSize="16"
         color={TEXT_COLOR}
         multiline
-        onInput={(e) => setText(e.value)}
+        value={multiText}
+        onInput={(e) => setMultiText(e.value)}
       />
     </view>
   );

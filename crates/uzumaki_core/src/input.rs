@@ -133,11 +133,19 @@ impl InputState {
     }
 
     pub fn set_value(&mut self, value: String) {
+        // Same value — no-op, preserves cursor and scroll (controlled input echo-back)
+        if self.text == value {
+            return;
+        }
         self.text = value;
         let count = self.grapheme_count();
-        self.selection.set_cursor(count);
-        self.scroll_offset = 0.0;
-        self.scroll_offset_y = 0.0;
+        // Clamp cursor instead of resetting — keeps position stable for small edits
+        if self.selection.active > count {
+            self.selection.active = count;
+        }
+        if self.selection.anchor > count {
+            self.selection.anchor = count;
+        }
     }
 
     pub fn insert_text(&mut self, ch: &str) -> Option<InputEdit> {

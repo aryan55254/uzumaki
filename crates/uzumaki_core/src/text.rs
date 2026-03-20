@@ -204,9 +204,7 @@ impl TextRenderer {
 
         let buffer = self.layout_buffer(text, Attrs::new(), font_size, wrap_width, None);
 
-        // Build byte_offset → (x, line_top) mapping from glyphs
         let mut byte_pos: Vec<(usize, f32, f32)> = Vec::new();
-        byte_pos.push((0, 0.0, 0.0));
 
         // Compute byte offset of each line start for mapping empty runs
         let mut line_starts: Vec<usize> = vec![0];
@@ -216,8 +214,18 @@ impl TextRenderer {
             }
         }
 
+        let line_height = (font_size * 1.2).round(); // match cosmic-text Metrics
+        let mut first_line_top: Option<f32> = None;
+        let mut last_line_top: f32 = 0.0;
+
         for run in buffer.layout_runs() {
             let line_top = run.line_top;
+            if first_line_top.is_none() {
+                first_line_top = Some(line_top);
+            }
+            if line_top >= last_line_top {
+                last_line_top = line_top;
+            }
 
             if run.glyphs.is_empty() {
                 // Empty line (e.g. after \n) — use line_i to find byte offset
@@ -232,13 +240,32 @@ impl TextRenderer {
             }
         }
 
+        let first_y = first_line_top.unwrap_or(0.0);
+
+        // Ensure byte 0 is in the map (safety net for text starting with non-printable chars)
+        if !byte_pos.iter().any(|&(off, _, _)| off == 0) {
+            byte_pos.push((0, 0.0, first_y));
+        }
+
+        // Ensure trailing newline has a position on the next line
+        if text.ends_with('\n') {
+            let end_byte = text.len();
+            if !byte_pos.iter().any(|&(off, _, _)| off == end_byte) {
+                byte_pos.push((end_byte, 0.0, last_line_top + line_height));
+            }
+        }
+
+        // Ensure text.len() is always in the map
+        if !byte_pos.iter().any(|&(off, _, _)| off == text.len()) {
+            let last = byte_pos.last().map(|&(_, x, y)| (x, y)).unwrap_or((0.0, first_y));
+            byte_pos.push((text.len(), last.0, last.1));
+        }
+
         byte_pos.sort_by_key(|&(off, _, _)| off);
         byte_pos.dedup_by_key(|entry| entry.0);
 
         // Map grapheme boundaries to (x, y)
         let mut positions = Vec::new();
-        // Use the line_top of the first run for position 0 (not hardcoded 0.0)
-        let first_y = byte_pos.first().map(|&(_, _, y)| y).unwrap_or(0.0);
         positions.push(GlyphPos2D { x: 0.0, y: first_y });
 
         let mut byte_offset = 0;
@@ -246,7 +273,6 @@ impl TextRenderer {
             byte_offset += grapheme.len();
             positions.push(lookup_byte_pos_2d(&byte_pos, byte_offset));
         }
-
 
         positions
     }
@@ -261,7 +287,7 @@ impl TextRenderer {
         y: f32,
     ) -> usize {
         let positions = self.grapheme_positions_2d(text, font_size, wrap_width);
-        let line_height = font_size * 1.2;
+        let line_height = (font_size * 1.2).round(); // match cosmic-text Metrics
 
         // Collect unique line y values
         let mut line_ys: Vec<f32> = Vec::new();
@@ -271,14 +297,14 @@ impl TextRenderer {
             }
         }
 
-        // Find which line the y coordinate falls on
+        // Find which line the y coordinate falls on.
+        // Use the line whose vertical range [ly, ly + line_height) contains y.
         let mut target_y = line_ys.first().copied().unwrap_or(0.0);
         for &ly in &line_ys {
-            if y >= ly - 1.0 {
+            if y >= ly {
                 target_y = ly;
             }
         }
-        // If y is above all lines, use first; if below, use last (already handled)
 
         // Among positions on that line, find closest x
         let mut best_idx = 0;
