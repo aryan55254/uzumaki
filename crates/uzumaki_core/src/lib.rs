@@ -344,6 +344,9 @@ pub enum PropKey {
     ActiveColor = 48,
     ActiveOpacity = 49,
     ActiveBorderColor = 50,
+    Scrollable = 51,
+    MinW = 52,
+    MinH = 53,
 }
 
 // ── Typed value structs ──────────────────────────────────────────────
@@ -417,6 +420,8 @@ pub fn set_length_prop(window_id: u32, node_id: serde_json::Value, prop: PropKey
             match prop {
                 PropKey::W => s.size.width = length,
                 PropKey::H => s.size.height = length,
+                PropKey::MinW => s.min_size.width = length,
+                PropKey::MinH => s.min_size.height = length,
                 _ => return,
             }
         }
@@ -501,6 +506,20 @@ pub fn set_f32_prop(window_id: u32, node_id: serde_json::Value, prop: PropKey, v
             }
             PropKey::Interactive => {
                 entry.dom.nodes[nid].interactivity.js_interactive = v > 0.5;
+                return;
+            }
+            PropKey::Scrollable => {
+                let node = &mut entry.dom.nodes[nid];
+                if v > 0.5 {
+                    node.style.overflow_y = Overflow::Scroll;
+                    if node.scroll_state.is_none() {
+                        node.scroll_state = Some(crate::element::ScrollState::new());
+                    }
+                } else {
+                    node.style.overflow_y = Overflow::Visible;
+                    node.scroll_state = None;
+                }
+                sync_taffy(&mut entry.dom, nid);
                 return;
             }
             _ => {}
@@ -1001,6 +1020,24 @@ impl ApplicationHandler<UserEvent> for Application {
                                 needs_redraw = true;
                             }
 
+                            // Scroll thumb drag
+                            if let Some(ref drag) = dom.scroll_drag {
+                                let delta_y = logical_y - drag.start_mouse_y;
+                                let new_offset = if drag.track_range > 0.0 {
+                                    drag.start_scroll_offset + (delta_y as f32 / drag.track_range as f32) * drag.max_scroll
+                                } else {
+                                    drag.start_scroll_offset
+                                };
+                                let nid = drag.node_id;
+                                let max = drag.max_scroll;
+                                if let Some(node) = dom.nodes.get_mut(nid) {
+                                    if let Some(ss) = &mut node.scroll_state {
+                                        ss.scroll_offset_y = new_offset.clamp(0.0, max);
+                                    }
+                                }
+                                needs_redraw = true;
+                            }
+
                             // Input drag selection
                             if mouse_buttons & 1 != 0 {
                                 if let Some(drag_nid) = dom.dragging_input {
@@ -1106,6 +1143,50 @@ impl ApplicationHandler<UserEvent> for Application {
                         if let Some((mx, my)) = dom.hit_state.mouse_position {
                             let x = mx as f32;
                             let y = my as f32;
+
+                            // Check scroll thumb click (left button press)
+                            if btn_state == winit::event::ElementState::Pressed
+                                && button == winit::event::MouseButton::Left
+                            {
+                                let thumb_hit = dom.scroll_thumbs.iter().rev().find(|t| {
+                                    t.thumb_bounds.contains(mx, my)
+                                });
+                                if let Some(t) = thumb_hit {
+                                    let nid = t.node_id;
+                                    let visible_h = t.visible_height;
+                                    let content_h = t.content_height;
+                                    let max_scroll = (content_h - visible_h).max(0.0);
+                                    let ratio = visible_h as f64 / content_h as f64;
+                                    let thumb_height = (t.view_bounds.height * ratio).max(24.0);
+                                    let track_range = t.view_bounds.height - thumb_height;
+                                    let start_offset = dom.nodes.get(nid)
+                                        .and_then(|n| n.scroll_state.as_ref())
+                                        .map(|ss| ss.scroll_offset_y)
+                                        .unwrap_or(0.0);
+                                    dom.scroll_drag = Some(crate::element::ScrollDragState {
+                                        node_id: nid,
+                                        start_mouse_y: my,
+                                        start_scroll_offset: start_offset,
+                                        track_range,
+                                        max_scroll,
+                                    });
+                                    // Skip normal mouse handling — thumb captured the click
+                                    if let Some(entry) = state.windows.get(&wid) {
+                                        if let Some(ref handle) = entry.handle {
+                                            handle.winit_window.request_redraw();
+                                        }
+                                    }
+                                    return;
+                                }
+                            }
+
+                            // End scroll drag on mouse up
+                            if btn_state == winit::event::ElementState::Released
+                                && button == winit::event::MouseButton::Left
+                                && dom.scroll_drag.is_some()
+                            {
+                                dom.scroll_drag = None;
+                            }
 
                             // Resolve topmost hit → NodeId for JS event target
                             let js_target = dom.hit_state.top_hit
@@ -1522,6 +1603,43 @@ impl ApplicationHandler<UserEvent> for Application {
                     if let Some(entry) = state.windows.get_mut(&wid) {
                         entry.dom.hit_state = Default::default();
                         needs_redraw = true;
+                    }
+                }
+                WindowEvent::MouseWheel { delta, .. } => {
+                    let scroll_delta_y = match delta {
+                        winit::event::MouseScrollDelta::LineDelta(_, y) => y as f64 * 40.0,
+                        winit::event::MouseScrollDelta::PixelDelta(pos) => pos.y,
+                    };
+
+                    if let Some(entry) = state.windows.get_mut(&wid) {
+                        let dom = &mut entry.dom;
+                        if let Some((mx, my)) = dom.hit_state.mouse_position {
+                            // Find the topmost scrollable view containing the mouse
+                            // Walk scroll_thumbs (which have view_bounds) in reverse (front-to-back)
+                            let mut target: Option<crate::element::NodeId> = None;
+                            for thumb_rect in dom.scroll_thumbs.iter().rev() {
+                                if thumb_rect.view_bounds.contains(mx, my) {
+                                    target = Some(thumb_rect.node_id);
+                                    break;
+                                }
+                            }
+
+                            if let Some(nid) = target {
+                                let scroll_info = dom.scroll_thumbs.iter()
+                                    .find(|t| t.node_id == nid)
+                                    .map(|t| (t.content_height, t.visible_height));
+                                if let Some((content_h, visible_h)) = scroll_info {
+                                    let max_scroll = (content_h - visible_h).max(0.0);
+                                    if let Some(node) = dom.nodes.get_mut(nid) {
+                                        if let Some(ss) = &mut node.scroll_state {
+                                            ss.scroll_offset_y = (ss.scroll_offset_y - scroll_delta_y as f32)
+                                                .clamp(0.0, max_scroll);
+                                        }
+                                    }
+                                    needs_redraw = true;
+                                }
+                            }
+                        }
                     }
                 }
                 WindowEvent::CloseRequested => {

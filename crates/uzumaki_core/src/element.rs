@@ -1,7 +1,7 @@
 use cosmic_text::Attrs;
 use slotmap::{SlotMap, new_key_type};
 use vello::Scene;
-use vello::kurbo::{Affine, Rect};
+use vello::kurbo::{Affine, Rect, RoundedRect, RoundedRectRadii};
 use vello::peniko::{Color as VelloColor, Fill};
 
 use crate::input::InputState;
@@ -11,6 +11,40 @@ use crate::text::TextRenderer;
 
 new_key_type! {
     pub struct NodeId;
+}
+
+// ── Scroll state ─────────────────────────────────────────────────────
+
+pub struct ScrollState {
+    pub scroll_offset_y: f32,
+}
+
+impl ScrollState {
+    pub fn new() -> Self {
+        Self {
+            scroll_offset_y: 0.0,
+        }
+    }
+}
+
+/// Active scroll-thumb drag. Stored on Dom (only one drag at a time).
+pub struct ScrollDragState {
+    pub node_id: NodeId,
+    pub start_mouse_y: f64,
+    pub start_scroll_offset: f32,
+    /// Track length = visible_height - thumb_height (how far thumb can move).
+    pub track_range: f64,
+    /// Max scroll offset (content_height - visible_height).
+    pub max_scroll: f32,
+}
+
+/// Rendered thumb rect, rebuilt each paint pass for hit testing.
+pub struct ScrollThumbRect {
+    pub node_id: NodeId,
+    pub thumb_bounds: Bounds,
+    pub view_bounds: Bounds,
+    pub content_height: f32,
+    pub visible_height: f32,
 }
 
 // ── Text content ─────────────────────────────────────────────────────
@@ -58,6 +92,8 @@ pub struct Node {
     pub interactivity: Interactivity,
     /// Input state, present only for Input elements.
     pub input_state: Option<InputState>,
+    /// Scroll state, present only when overflow_y == Scroll.
+    pub scroll_state: Option<ScrollState>,
 }
 
 // ── Dom ──────────────────────────────────────────────────────────────
@@ -80,6 +116,10 @@ pub struct Dom {
     pub last_click_node: Option<NodeId>,
     /// Whether the OS window is focused.
     pub window_focused: bool,
+    /// Scroll thumb rects from last paint pass (for hit testing).
+    pub scroll_thumbs: Vec<ScrollThumbRect>,
+    /// Active scroll-thumb drag state (only one at a time).
+    pub scroll_drag: Option<ScrollDragState>,
 }
 
 struct InputRenderInfo {
@@ -116,6 +156,8 @@ impl Dom {
             last_click_time: None,
             last_click_node: None,
             window_focused: true,
+            scroll_thumbs: Vec::new(),
+            scroll_drag: None,
         }
     }
 
@@ -142,6 +184,7 @@ impl Dom {
             style,
             interactivity: Interactivity::new(),
             input_state: None,
+            scroll_state: None,
         });
         self.taffy
             .set_node_context(
@@ -176,6 +219,7 @@ impl Dom {
             style,
             interactivity: Interactivity::new(),
             input_state: None,
+            scroll_state: None,
         });
         self.taffy
             .set_node_context(
@@ -207,6 +251,7 @@ impl Dom {
             style,
             interactivity: Interactivity::new(),
             input_state: Some(InputState::new()),
+            scroll_state: None,
         });
         self.taffy
             .set_node_context(
@@ -405,9 +450,10 @@ impl Dom {
         self.hit_state.active_hitbox = hitbox_id;
     }
 
-    /// Render the DOM tree into the scene. Also rebuilds hitboxes.
+    /// Render the DOM tree into the scene. Also rebuilds hitboxes and scroll thumbs.
     pub fn render(&mut self, scene: &mut Scene, text_renderer: &mut TextRenderer, scale: f64) {
         self.hitbox_store.clear();
+        self.scroll_thumbs.clear();
 
         if let Some(root) = self.root {
             self.render_tree(scene, text_renderer, root, scale);
@@ -434,113 +480,269 @@ impl Dom {
             input: Option<InputRenderInfo>,
         }
 
-        let mut render_list: Vec<RenderInfo> = Vec::new();
-        let mut stack: Vec<(NodeId, f64, f64)> = vec![(root_id, 0.0, 0.0)];
-
-        while let Some((node_id, parent_x, parent_y)) = stack.pop() {
-            let node = &self.nodes[node_id];
-            let Ok(layout) = self.taffy.layout(node.taffy_node) else {
-                continue;
-            };
-
-            let x = parent_x + layout.location.x as f64;
-            let y = parent_y + layout.location.y as f64;
-            let w = layout.size.width as f64;
-            let h = layout.size.height as f64;
-
-            let computed_style = node
-                .interactivity
-                .compute_style(&node.style, &self.hit_state);
-
-            let text = match &node.kind {
-                ElementKind::Text(tc) => Some((
-                    tc.content.clone(),
-                    computed_style.text.font_size,
-                    computed_style.text.color,
-                )),
-                _ => None,
-            };
-
-            let input = if let ElementKind::Input = &node.kind {
-                node.input_state.as_ref().map(|is| {
-                    InputRenderInfo {
-                        display_text: is.display_text(),
-                        placeholder: is.placeholder.clone(),
-                        font_size: computed_style.text.font_size,
-                        text_color: computed_style.text.color,
-                        focused: is.focused,
-                        sel_start: is.selection.start(),
-                        sel_end: is.selection.end(),
-                        cursor_pos: is.selection.active,
-                        scroll_offset: is.scroll_offset,
-                        scroll_offset_y: is.scroll_offset_y,
-                        blink_visible: is.blink_visible(self.window_focused),
-                        multiline: is.multiline,
-                    }
-                })
-            } else {
-                None
-            };
-
-            let needs_hitbox = node.interactivity.needs_hitbox();
-
-            // Collect children in order, push in reverse for correct DFS
-            let mut children = Vec::new();
-            let mut child = node.first_child;
-            while let Some(child_id) = child {
-                children.push(child_id);
-                child = self.nodes[child_id].next_sibling;
-            }
-            for &child_id in children.iter().rev() {
-                stack.push((child_id, x, y));
-            }
-
-            render_list.push(RenderInfo {
-                node_id,
-                x,
-                y,
-                w,
-                h,
-                style: computed_style,
-                text,
-                needs_hitbox,
-                input,
-            });
+        struct ThumbInfo {
+            node_id: NodeId,
+            view_x: f64,
+            view_y: f64,
+            view_w: f64,
+            view_h: f64,
+            scroll_offset_y: f32,
+            content_height: f32,
+            visible_height: f32,
+            thumb_hovered: bool,
+            scale: f64,
         }
 
-        // Paint all nodes in tree order
-        for info in &render_list {
-            let bounds = Bounds::new(info.x, info.y, info.w, info.h);
+        enum RenderCommand {
+            PaintNode(RenderInfo),
+            PushClip(Rect, f64),
+            PopClip,
+            PaintThumb(ThumbInfo),
+        }
 
-            // Register hitbox if needed
-            if info.needs_hitbox {
-                let hitbox_id = self.hitbox_store.insert(info.node_id, bounds);
-                self.nodes[info.node_id].interactivity.hitbox_id = Some(hitbox_id);
-            }
+        enum StackItem {
+            Visit(NodeId, f64, f64),
+            PushClip(Rect, f64),
+            PopClip,
+            PaintThumb(ThumbInfo),
+        }
 
-            if let Some(input_info) = &info.input {
-                paint_input(scene, text_renderer, bounds, &info.style, input_info, scale);
-            } else {
-                match &info.text {
-                    Some((content, font_size, color)) => {
-                        info.style.paint(bounds, scene, scale, |scene| {
-                            text_renderer.draw_text(
-                                scene,
-                                content,
-                                Attrs::new(),
-                                *font_size,
-                                info.w as f32,
-                                info.h as f32,
-                                (info.x as f32, info.y as f32),
-                                color.to_vello(),
+        let mut render_list: Vec<RenderCommand> = Vec::new();
+        let mut stack: Vec<StackItem> = vec![StackItem::Visit(root_id, 0.0, 0.0)];
+
+        while let Some(item) = stack.pop() {
+            match item {
+                StackItem::PushClip(rect, s) => {
+                    render_list.push(RenderCommand::PushClip(rect, s));
+                    continue;
+                }
+                StackItem::PopClip => {
+                    render_list.push(RenderCommand::PopClip);
+                    continue;
+                }
+                StackItem::PaintThumb(info) => {
+                    render_list.push(RenderCommand::PaintThumb(info));
+                    continue;
+                }
+                StackItem::Visit(node_id, parent_x, parent_y) => {
+                    // Extract all needed data from the node (immutable borrow scope)
+                    let (taffy_node, computed_style, text, input, needs_hitbox, is_scrollable, first_child) = {
+                        let node = &self.nodes[node_id];
+                        let taffy_node = node.taffy_node;
+                        let computed_style = node
+                            .interactivity
+                            .compute_style(&node.style, &self.hit_state);
+
+                        let text = match &node.kind {
+                            ElementKind::Text(tc) => Some((
+                                tc.content.clone(),
+                                computed_style.text.font_size,
+                                computed_style.text.color,
+                            )),
+                            _ => None,
+                        };
+
+                        let input = if let ElementKind::Input = &node.kind {
+                            node.input_state.as_ref().map(|is| {
+                                InputRenderInfo {
+                                    display_text: is.display_text(),
+                                    placeholder: is.placeholder.clone(),
+                                    font_size: computed_style.text.font_size,
+                                    text_color: computed_style.text.color,
+                                    focused: is.focused,
+                                    sel_start: is.selection.start(),
+                                    sel_end: is.selection.end(),
+                                    cursor_pos: is.selection.active,
+                                    scroll_offset: is.scroll_offset,
+                                    scroll_offset_y: is.scroll_offset_y,
+                                    blink_visible: is.blink_visible(self.window_focused),
+                                    multiline: is.multiline,
+                                }
+                            })
+                        } else {
+                            None
+                        };
+
+                        let needs_hitbox = node.interactivity.needs_hitbox();
+                        let is_scrollable = node.scroll_state.is_some();
+                        let first_child = node.first_child;
+
+                        (taffy_node, computed_style, text, input, needs_hitbox, is_scrollable, first_child)
+                    };
+                    // immutable borrow of self.nodes is now dropped
+
+                    let Ok(layout) = self.taffy.layout(taffy_node) else {
+                        continue;
+                    };
+
+                    let x = parent_x + layout.location.x as f64;
+                    let y = parent_y + layout.location.y as f64;
+                    let w = layout.size.width as f64;
+                    let h = layout.size.height as f64;
+
+                    // Compute scroll info and clamp offset (mutable borrow is safe now)
+                    let scroll_info = if is_scrollable {
+                        let content_height = layout.content_size.height;
+                        let visible_height = layout.size.height;
+                        let max_scroll = (content_height - visible_height).max(0.0);
+                        if let Some(ss) = self.nodes[node_id].scroll_state.as_mut() {
+                            if ss.scroll_offset_y > max_scroll {
+                                ss.scroll_offset_y = max_scroll;
+                            }
+                        }
+                        let clamped_offset = self.nodes[node_id].scroll_state.as_ref()
+                            .map(|ss| ss.scroll_offset_y)
+                            .unwrap_or(0.0);
+                        Some((content_height, visible_height, clamped_offset))
+                    } else {
+                        None
+                    };
+
+                    // Collect children in order
+                    let mut children = Vec::new();
+                    let mut child = first_child;
+                    while let Some(child_id) = child {
+                        children.push(child_id);
+                        child = self.nodes[child_id].next_sibling;
+                    }
+
+                    if let Some((content_height, visible_height, clamped_offset)) = scroll_info {
+                        let overflows = content_height > visible_height;
+                        let thumb_hovered = self.scroll_drag.as_ref().map_or(false, |d| d.node_id == node_id)
+                            || self.scroll_thumbs.iter().any(|t| {
+                                t.node_id == node_id
+                                    && self.hit_state.mouse_position.map_or(false, |(mx, my)| {
+                                        t.thumb_bounds.contains(mx, my)
+                                    })
+                            });
+
+                        // Push in reverse order for LIFO stack:
+                        // 6. PaintThumb (last to execute)
+                        if overflows {
+                            stack.push(StackItem::PaintThumb(ThumbInfo {
+                                node_id,
+                                view_x: x,
+                                view_y: y,
+                                view_w: w,
+                                view_h: h,
+                                scroll_offset_y: clamped_offset,
+                                content_height,
+                                visible_height,
+                                thumb_hovered,
                                 scale,
-                            );
-                        });
+                            }));
+                        }
+                        // 5. PopClip
+                        stack.push(StackItem::PopClip);
+                        // 4-3. Children (reversed for correct order)
+                        for &child_id in children.iter().rev() {
+                            stack.push(StackItem::Visit(child_id, x, y - clamped_offset as f64));
+                        }
+                        // 2. PushClip
+                        let clip_rect = Rect::new(x, y, x + w, y + h);
+                        stack.push(StackItem::PushClip(clip_rect, scale));
+                    } else {
+                        // Normal (non-scrollable) node: push children
+                        for &child_id in children.iter().rev() {
+                            stack.push(StackItem::Visit(child_id, x, y));
+                        }
                     }
-                    None => {
-                        // View: paint bg + borders, children paint themselves in order
-                        info.style.paint(bounds, scene, scale, |_scene| {});
+
+                    // 1. PaintNode (always first — the node's own bg/borders)
+                    render_list.push(RenderCommand::PaintNode(RenderInfo {
+                        node_id,
+                        x,
+                        y,
+                        w,
+                        h,
+                        style: computed_style,
+                        text,
+                        needs_hitbox,
+                        input,
+                    }));
+                }
+            }
+        }
+
+        // Paint all commands in order
+        for cmd in &render_list {
+            match cmd {
+                RenderCommand::PaintNode(info) => {
+                    let bounds = Bounds::new(info.x, info.y, info.w, info.h);
+
+                    // Register hitbox if needed
+                    if info.needs_hitbox {
+                        let hitbox_id = self.hitbox_store.insert(info.node_id, bounds);
+                        self.nodes[info.node_id].interactivity.hitbox_id = Some(hitbox_id);
                     }
+
+                    if let Some(input_info) = &info.input {
+                        paint_input(scene, text_renderer, bounds, &info.style, input_info, scale);
+                    } else {
+                        match &info.text {
+                            Some((content, font_size, color)) => {
+                                info.style.paint(bounds, scene, scale, |scene| {
+                                    text_renderer.draw_text(
+                                        scene,
+                                        content,
+                                        Attrs::new(),
+                                        *font_size,
+                                        info.w as f32,
+                                        info.h as f32,
+                                        (info.x as f32, info.y as f32),
+                                        color.to_vello(),
+                                        scale,
+                                    );
+                                });
+                            }
+                            None => {
+                                // View: paint bg + borders, children paint themselves in order
+                                info.style.paint(bounds, scene, scale, |_scene| {});
+                            }
+                        }
+                    }
+                }
+                RenderCommand::PushClip(rect, s) => {
+                    scene.push_clip_layer(Fill::NonZero, Affine::scale(*s), rect);
+                }
+                RenderCommand::PopClip => {
+                    scene.pop_layer();
+                }
+                RenderCommand::PaintThumb(thumb) => {
+                    // Scrollbar thumb: 4px wide, 4px margin from right edge
+                    let thumb_width = 4.0;
+                    let thumb_margin = 4.0;
+
+                    let ratio = thumb.visible_height as f64 / thumb.content_height as f64;
+                    let thumb_height = (thumb.view_h * ratio).max(24.0);
+                    let track_height = thumb.view_h;
+                    let max_scroll = (thumb.content_height - thumb.visible_height).max(0.0) as f64;
+                    let scroll_ratio = if max_scroll > 0.0 {
+                        thumb.scroll_offset_y as f64 / max_scroll
+                    } else {
+                        0.0
+                    };
+                    let thumb_y = thumb.view_y + scroll_ratio * (track_height - thumb_height);
+                    let thumb_x = thumb.view_x + thumb.view_w - thumb_width - thumb_margin;
+
+                    let thumb_bounds = Bounds::new(thumb_x, thumb_y, thumb_width, thumb_height);
+
+                    // Register for hit testing
+                    self.scroll_thumbs.push(ScrollThumbRect {
+                        node_id: thumb.node_id,
+                        thumb_bounds,
+                        view_bounds: Bounds::new(thumb.view_x, thumb.view_y, thumb.view_w, thumb.view_h),
+                        content_height: thumb.content_height,
+                        visible_height: thumb.visible_height,
+                    });
+
+                    // Paint the thumb as a filled rounded rect
+                    let alpha = if thumb.thumb_hovered { 140u8 } else { 90u8 };
+                    let color = VelloColor::from_rgba8(255, 255, 255, alpha);
+                    let radius = thumb_width / 2.0;
+                    let rect = Rect::new(thumb_x, thumb_y, thumb_x + thumb_width, thumb_y + thumb_height);
+                    let rounded = RoundedRect::from_rect(rect, RoundedRectRadii::from_single_radius(radius));
+                    scene.fill(Fill::NonZero, Affine::scale(thumb.scale), color, None, &rounded);
                 }
             }
         }

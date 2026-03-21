@@ -5,6 +5,8 @@ import type { UzumakiMouseEvent, UzumakiKeyboardEvent, UzumakiInputEvent, Uzumak
 interface ElementStyles {
   h?: number | string;
   w?: number | string;
+  minH?: number | string;
+  minW?: number | string;
   p?: number | string;
   px?: number | string;
   py?: number | string;
@@ -44,6 +46,7 @@ interface ElementStyles {
   opacity?: number | string;
   cursor?: string;
   display?: 'flex' | 'none' | 'block';
+  scrollable?: boolean;
 }
 
 type PrefixedStyles<Prefix extends string> = {

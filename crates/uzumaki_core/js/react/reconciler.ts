@@ -13,7 +13,7 @@ const INPUT_ATTRS = new Set(['value', 'placeholder', 'disabled', 'maxLength', 'm
 // ── Prop key mapping ─────────────────────────────────────────────────
 
 const PROP_NAME_TO_KEY: Record<string, number> = {
-  w: PropKey.W, h: PropKey.H,
+  w: PropKey.W, h: PropKey.H, minW: PropKey.MinW, minH: PropKey.MinH,
   p: PropKey.P, px: PropKey.Px, py: PropKey.Py, pt: PropKey.Pt, pb: PropKey.Pb, pl: PropKey.Pl, pr: PropKey.Pr,
   m: PropKey.M, mx: PropKey.Mx, my: PropKey.My, mt: PropKey.Mt, mb: PropKey.Mb, ml: PropKey.Ml, mr: PropKey.Mr,
   flex: PropKey.Flex, flexDir: PropKey.FlexDir, flexGrow: PropKey.FlexGrow, flexShrink: PropKey.FlexShrink,
@@ -25,11 +25,12 @@ const PROP_NAME_TO_KEY: Record<string, number> = {
   display: PropKey.Display, cursor: PropKey.Cursor,
   'hover:bg': PropKey.HoverBg, 'hover:color': PropKey.HoverColor, 'hover:opacity': PropKey.HoverOpacity, 'hover:borderColor': PropKey.HoverBorderColor,
   'active:bg': PropKey.ActiveBg, 'active:color': PropKey.ActiveColor, 'active:opacity': PropKey.ActiveOpacity, 'active:borderColor': PropKey.ActiveBorderColor,
+  scrollable: PropKey.Scrollable,
 };
 
 // ── Prop type categorization ─────────────────────────────────────────
 
-const LENGTH_KEYS = new Set([PropKey.W, PropKey.H]);
+const LENGTH_KEYS = new Set([PropKey.W, PropKey.H, PropKey.MinW, PropKey.MinH]);
 const COLOR_KEYS = new Set([
   PropKey.Bg, PropKey.Color, PropKey.BorderColor,
   PropKey.HoverBg, PropKey.HoverColor, PropKey.HoverBorderColor,
@@ -119,7 +120,15 @@ function setProp(windowId: number, nodeId: any, propName: string, value: any): v
   } else if (ENUM_KEYS.has(key)) {
     core.setEnumProp(windowId, nodeId, key, toEnumValue(key, value));
   } else {
-    core.setF32Prop(windowId, nodeId, key, typeof value === 'number' ? value : parseFloat(String(value)) || 0);
+    let numValue: number;
+    if (typeof value === 'boolean') {
+      numValue = value ? 1 : 0;
+    } else if (typeof value === 'number') {
+      numValue = value;
+    } else {
+      numValue = parseFloat(String(value)) || 0;
+    }
+    core.setF32Prop(windowId, nodeId, key, numValue);
   }
 }
 

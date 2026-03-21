@@ -188,7 +188,7 @@ function Dashboard() {
   const [showRecentActivity, setShowRecentActivity] = useState(true);
 
   return (
-    <view display="flex" flexDir="col" flexGrow="1" p="16" gap="16">
+    <view scrollable minH={0} display="flex" flexDir="col" flexGrow="1" p="16" gap="16">
       {/* Page title */}
       <text fontSize="24" color={TEXT_COLOR}>
         Dashboard
@@ -275,9 +275,6 @@ function Dashboard() {
         </view>
       </view>
 
-      {/* Input demo */}
-      <InputDemo />
-
       {/* Bottom panel */}
       {showRecentActivity && (
         <view
@@ -299,6 +296,66 @@ function Dashboard() {
           </text>
         </view>
       )}
+
+      {/* Scroll demo */}
+      <ScrollDemo />
+
+      {/* Input demo */}
+      <InputDemo />
+    </view>
+  );
+}
+
+function ScrollDemo() {
+  const items = Array.from({ length: 30 }, (_, i) => ({
+    id: i,
+    label: `Item ${i + 1}`,
+    desc: `Description for item ${i + 1}`,
+  }));
+
+  return (
+    <view
+      display="flex"
+      flexDir="col"
+      p="16"
+      gap="12"
+      bg={PANEL}
+      rounded="8"
+      borderColor={BORDER}
+      border="1"
+    >
+      <text fontSize="16" color={TEXT_COLOR}>
+        Scroll Demo
+      </text>
+      <view
+        scrollable
+        h="200"
+        display="flex"
+        flexDir="col"
+        gap="4"
+        bg={BASE_BG}
+        rounded="6"
+      >
+        {items.map((item) => (
+          <view
+            key={item.id}
+            display="flex"
+            flexDir="col"
+            p="8"
+            px="12"
+            bg={PANEL}
+            rounded="4"
+            hover:bg={HOVER_BG}
+          >
+            <text fontSize="14" color={TEXT_COLOR}>
+              {item.label}
+            </text>
+            <text fontSize="12" color={SUBTEXT}>
+              {item.desc}
+            </text>
+          </view>
+        ))}
+      </view>
     </view>
   );
 }
