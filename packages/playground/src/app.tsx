@@ -141,10 +141,11 @@ function App() {
         display="flex"
         items="center"
         h="32"
-        p="16"
+        flexShrink={0}
+        px="16"
         bg={PANEL}
         borderColor={BORDER}
-        border="1"
+        borderTop="1"
       >
         <text fontSize="16" color={SUBTEXT}>
           Uzumaki v0.1.0

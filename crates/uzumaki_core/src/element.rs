@@ -526,7 +526,15 @@ impl Dom {
                 }
                 StackItem::Visit(node_id, parent_x, parent_y) => {
                     // Extract all needed data from the node (immutable borrow scope)
-                    let (taffy_node, computed_style, text, input, needs_hitbox, is_scrollable, first_child) = {
+                    let (
+                        taffy_node,
+                        computed_style,
+                        text,
+                        input,
+                        needs_hitbox,
+                        is_scrollable,
+                        first_child,
+                    ) = {
                         let node = &self.nodes[node_id];
                         let taffy_node = node.taffy_node;
                         let computed_style = node
@@ -543,21 +551,19 @@ impl Dom {
                         };
 
                         let input = if let ElementKind::Input = &node.kind {
-                            node.input_state.as_ref().map(|is| {
-                                InputRenderInfo {
-                                    display_text: is.display_text(),
-                                    placeholder: is.placeholder.clone(),
-                                    font_size: computed_style.text.font_size,
-                                    text_color: computed_style.text.color,
-                                    focused: is.focused,
-                                    sel_start: is.selection.start(),
-                                    sel_end: is.selection.end(),
-                                    cursor_pos: is.selection.active,
-                                    scroll_offset: is.scroll_offset,
-                                    scroll_offset_y: is.scroll_offset_y,
-                                    blink_visible: is.blink_visible(self.window_focused),
-                                    multiline: is.multiline,
-                                }
+                            node.input_state.as_ref().map(|is| InputRenderInfo {
+                                display_text: is.display_text(),
+                                placeholder: is.placeholder.clone(),
+                                font_size: computed_style.text.font_size,
+                                text_color: computed_style.text.color,
+                                focused: is.focused,
+                                sel_start: is.selection.start(),
+                                sel_end: is.selection.end(),
+                                cursor_pos: is.selection.active,
+                                scroll_offset: is.scroll_offset,
+                                scroll_offset_y: is.scroll_offset_y,
+                                blink_visible: is.blink_visible(self.window_focused),
+                                multiline: is.multiline,
                             })
                         } else {
                             None
@@ -567,7 +573,15 @@ impl Dom {
                         let is_scrollable = node.scroll_state.is_some();
                         let first_child = node.first_child;
 
-                        (taffy_node, computed_style, text, input, needs_hitbox, is_scrollable, first_child)
+                        (
+                            taffy_node,
+                            computed_style,
+                            text,
+                            input,
+                            needs_hitbox,
+                            is_scrollable,
+                            first_child,
+                        )
                     };
                     // immutable borrow of self.nodes is now dropped
 
@@ -590,7 +604,9 @@ impl Dom {
                                 ss.scroll_offset_y = max_scroll;
                             }
                         }
-                        let clamped_offset = self.nodes[node_id].scroll_state.as_ref()
+                        let clamped_offset = self.nodes[node_id]
+                            .scroll_state
+                            .as_ref()
                             .map(|ss| ss.scroll_offset_y)
                             .unwrap_or(0.0);
                         Some((content_height, visible_height, clamped_offset))
@@ -608,12 +624,16 @@ impl Dom {
 
                     if let Some((content_height, visible_height, clamped_offset)) = scroll_info {
                         let overflows = content_height > visible_height;
-                        let thumb_hovered = self.scroll_drag.as_ref().map_or(false, |d| d.node_id == node_id)
+                        let thumb_hovered = self
+                            .scroll_drag
+                            .as_ref()
+                            .map_or(false, |d| d.node_id == node_id)
                             || self.scroll_thumbs.iter().any(|t| {
                                 t.node_id == node_id
-                                    && self.hit_state.mouse_position.map_or(false, |(mx, my)| {
-                                        t.thumb_bounds.contains(mx, my)
-                                    })
+                                    && self
+                                        .hit_state
+                                        .mouse_position
+                                        .map_or(false, |(mx, my)| t.thumb_bounds.contains(mx, my))
                             });
 
                         // Push in reverse order for LIFO stack:
@@ -731,7 +751,12 @@ impl Dom {
                     self.scroll_thumbs.push(ScrollThumbRect {
                         node_id: thumb.node_id,
                         thumb_bounds,
-                        view_bounds: Bounds::new(thumb.view_x, thumb.view_y, thumb.view_w, thumb.view_h),
+                        view_bounds: Bounds::new(
+                            thumb.view_x,
+                            thumb.view_y,
+                            thumb.view_w,
+                            thumb.view_h,
+                        ),
                         content_height: thumb.content_height,
                         visible_height: thumb.visible_height,
                     });
@@ -740,9 +765,21 @@ impl Dom {
                     let alpha = if thumb.thumb_hovered { 140u8 } else { 90u8 };
                     let color = VelloColor::from_rgba8(255, 255, 255, alpha);
                     let radius = thumb_width / 2.0;
-                    let rect = Rect::new(thumb_x, thumb_y, thumb_x + thumb_width, thumb_y + thumb_height);
-                    let rounded = RoundedRect::from_rect(rect, RoundedRectRadii::from_single_radius(radius));
-                    scene.fill(Fill::NonZero, Affine::scale(thumb.scale), color, None, &rounded);
+                    let rect = Rect::new(
+                        thumb_x,
+                        thumb_y,
+                        thumb_x + thumb_width,
+                        thumb_y + thumb_height,
+                    );
+                    let rounded =
+                        RoundedRect::from_rect(rect, RoundedRectRadii::from_single_radius(radius));
+                    scene.fill(
+                        Fill::NonZero,
+                        Affine::scale(thumb.scale),
+                        color,
+                        None,
+                        &rounded,
+                    );
                 }
             }
         }
@@ -765,10 +802,12 @@ impl Dom {
 
         if ctx.is_input {
             return taffy::Size {
-                width: known_dimensions.width
+                width: known_dimensions
+                    .width
                     .or_else(|| available_as_option(available_space.width))
                     .unwrap_or(200.0),
-                height: known_dimensions.height
+                height: known_dimensions
+                    .height
                     .unwrap_or(ctx.font_size * 1.2 + 16.0),
             };
         }
@@ -894,7 +933,11 @@ fn paint_input(
 
     if input.multiline {
         // ── Multiline rendering ──
-        let top_pad: f32 = if style.padding.top > 0.0 { style.padding.top } else { 4.0 };
+        let top_pad: f32 = if style.padding.top > 0.0 {
+            style.padding.top
+        } else {
+            4.0
+        };
         let wrap_width = Some(text_w as f32);
 
         let positions = if !is_empty {
@@ -968,10 +1011,16 @@ fn paint_input(
                         if has_content {
                             // From sel_start x to right edge of content (or text_w)
                             let max_x = line_max_x(ly);
-                            (text_x + start_pos.x as f64, text_x + (max_x as f64).max(text_w))
+                            (
+                                text_x + start_pos.x as f64,
+                                text_x + (max_x as f64).max(text_w),
+                            )
                         } else {
                             // Empty first line: small indicator
-                            (text_x + start_pos.x as f64, text_x + start_pos.x as f64 + 8.0)
+                            (
+                                text_x + start_pos.x as f64,
+                                text_x + start_pos.x as f64 + 8.0,
+                            )
                         }
                     } else if idx == num_lines - 1 {
                         // Last line
@@ -994,7 +1043,10 @@ fn paint_input(
 
                     if rx2 > rx1 {
                         scene.fill(
-                            Fill::NonZero, Affine::scale(scale), sel_color, None,
+                            Fill::NonZero,
+                            Affine::scale(scale),
+                            sel_color,
+                            None,
                             &Rect::new(rx1, text_y + sy, rx2, text_y + sy + line_height as f64),
                         );
                     }

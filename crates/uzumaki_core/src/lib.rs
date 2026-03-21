@@ -1614,10 +1614,11 @@ impl ApplicationHandler<UserEvent> for Application {
                     if let Some(entry) = state.windows.get_mut(&wid) {
                         let dom = &mut entry.dom;
                         if let Some((mx, my)) = dom.hit_state.mouse_position {
-                            // Find the topmost scrollable view containing the mouse
-                            // Walk scroll_thumbs (which have view_bounds) in reverse (front-to-back)
+                            // Find the innermost scrollable view containing the mouse.
+                            // scroll_thumbs are ordered inner-first (children before parents),
+                            // so the first match is the most deeply nested.
                             let mut target: Option<crate::element::NodeId> = None;
-                            for thumb_rect in dom.scroll_thumbs.iter().rev() {
+                            for thumb_rect in dom.scroll_thumbs.iter() {
                                 if thumb_rect.view_bounds.contains(mx, my) {
                                     target = Some(thumb_rect.node_id);
                                     break;
