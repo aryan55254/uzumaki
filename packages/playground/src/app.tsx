@@ -98,7 +98,7 @@ function App() {
   return (
     <view display="flex" flexDir="col" w="full" h="full" bg={BASE_BG}>
       {/* Body */}
-      <view display="flex" flexGrow="1" bg={BASE_BG}>
+      <view display="flex" flexGrow="1" minH={0} bg={BASE_BG}>
         {/* Sidebar */}
         <view
           display="flex"
