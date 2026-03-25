@@ -1,5 +1,5 @@
 use std::time::Instant;
-use winit::keyboard::Key;
+use winit::keyboard::{Key, NamedKey};
 
 pub use crate::text_model::{EditEvent, EditKind, KeyResult, Selection, TextModel};
 
@@ -15,8 +15,11 @@ pub struct InputState {
     pub blink_reset: Instant,
     pub disabled: bool,
     pub secure: bool,
+    pub multiline: bool,
     /// Preserved X coordinate for vertical navigation (sticky column).
     pub sticky_x: Option<f32>,
+    /// Preserved column for vertical navigation (sticky column in grapheme units).
+    pub sticky_col: Option<usize>,
 }
 
 impl InputState {
@@ -30,7 +33,9 @@ impl InputState {
             blink_reset: Instant::now(),
             disabled: false,
             secure: false,
+            multiline: false,
             sticky_x: None,
+            sticky_col: None,
         }
     }
 
@@ -38,10 +43,22 @@ impl InputState {
 
     pub fn insert_text(&mut self, ch: &str) -> Option<EditEvent> {
         self.sticky_x = None;
+        self.sticky_col = None;
         if self.disabled {
             return None;
         }
-        let result = self.model.insert(ch);
+        // Single-line: reject newlines at the boundary
+        let text_to_insert;
+        let input = if !self.multiline {
+            text_to_insert = ch.chars().filter(|&c| c != '\n' && c != '\r').collect::<String>();
+            if text_to_insert.is_empty() {
+                return None;
+            }
+            text_to_insert.as_str()
+        } else {
+            ch
+        };
+        let result = self.model.insert(input);
         if result.is_some() {
             self.reset_blink();
         }
@@ -50,6 +67,7 @@ impl InputState {
 
     pub fn delete_backward(&mut self) -> Option<EditEvent> {
         self.sticky_x = None;
+        self.sticky_col = None;
         if self.disabled {
             return None;
         }
@@ -62,6 +80,7 @@ impl InputState {
 
     pub fn delete_forward(&mut self) -> Option<EditEvent> {
         self.sticky_x = None;
+        self.sticky_col = None;
         if self.disabled {
             return None;
         }
@@ -74,6 +93,7 @@ impl InputState {
 
     pub fn delete_word_backward(&mut self) -> Option<EditEvent> {
         self.sticky_x = None;
+        self.sticky_col = None;
         if self.disabled {
             return None;
         }
@@ -86,6 +106,7 @@ impl InputState {
 
     pub fn delete_word_forward(&mut self) -> Option<EditEvent> {
         self.sticky_x = None;
+        self.sticky_col = None;
         if self.disabled {
             return None;
         }
@@ -185,7 +206,7 @@ impl InputState {
         if self.secure {
             "\u{2022}".repeat(self.model.grapheme_count())
         } else {
-            self.model.text.clone()
+            self.model.text()
         }
     }
 
@@ -224,7 +245,14 @@ impl InputState {
         if self.disabled {
             return KeyResult::Ignored;
         }
+        // Single-line: reject Enter
+        if !self.multiline {
+            if matches!(key, Key::Named(NamedKey::Enter)) {
+                return KeyResult::Ignored;
+            }
+        }
         self.sticky_x = None;
+        self.sticky_col = None;
         let result = self.model.handle_key(key, modifiers);
         match &result {
             KeyResult::Edit(_) | KeyResult::Handled | KeyResult::Blur => {

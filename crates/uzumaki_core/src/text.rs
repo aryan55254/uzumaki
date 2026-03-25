@@ -260,8 +260,6 @@ impl TextRenderer {
             byte_pos.push((text.len(), last.0, last.1));
         }
 
-        // Sort by byte offset, then y ascending. Do NOT dedup — at wrap
-        // boundaries the same byte offset appears on two lines and we need both.
         byte_pos.sort_by(|a, b| {
             a.0.cmp(&b.0)
                 .then(a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
@@ -276,17 +274,20 @@ impl TextRenderer {
             .map(|(i, ch)| i + ch.len_utf8())
             .collect();
 
-        // Map grapheme boundaries to (x, y)
+        // Map grapheme boundaries to (x, y), normalizing y to zero-based
         let mut positions = Vec::new();
-        positions.push(GlyphPos2D { x: 0.0, y: first_y });
+        positions.push(GlyphPos2D { x: 0.0, y: 0.0 });
 
         let mut byte_offset = 0;
         for grapheme in text.graphemes(true) {
             byte_offset += grapheme.len();
             let after_newline = newline_bytes.contains(&byte_offset);
-            positions.push(lookup_byte_pos_2d(&byte_pos, byte_offset, after_newline));
+            let mut pos = lookup_byte_pos_2d(&byte_pos, byte_offset, after_newline);
+            pos.y -= first_y;
+            positions.push(pos);
         }
 
+        // Normalize the first position too (it was set to 0.0 above, which is correct)
         positions
     }
 

@@ -644,7 +644,7 @@ pub fn set_input_multiline(window_id: u32, node_id: serde_json::Value, multiline
         let entry = state.windows.get_mut(&window_id).expect("window not found");
         if let Some(node) = entry.dom.nodes.get_mut(nid) {
             if let Some(is) = node.behavior.as_input_mut() {
-                is.model.multiline = multiline;
+                is.multiline = multiline;
             }
         }
     });
@@ -673,7 +673,7 @@ pub fn get_input_value(window_id: u32, node_id: serde_json::Value) -> String {
             .nodes
             .get(nid)
             .and_then(|node| node.behavior.as_input())
-            .map(|is| is.model.text.clone())
+            .map(|is| is.model.text())
             .unwrap_or_default()
     })
 }

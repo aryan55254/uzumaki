@@ -559,7 +559,7 @@ impl Dom {
                             scroll_offset: is.scroll_offset,
                             scroll_offset_y: is.scroll_offset_y,
                             blink_visible: is.blink_visible(self.window_focused),
-                            multiline: is.model.multiline,
+                            multiline: is.multiline,
                         });
 
                         let needs_hitbox = node.interactivity.needs_hitbox();

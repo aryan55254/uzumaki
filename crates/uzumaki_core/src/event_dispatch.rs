@@ -108,7 +108,7 @@ pub fn handle_redraw(
                 .nodes
                 .get(focused_id)
                 .and_then(|n| n.behavior.as_input())
-                .map(|is| is.model.multiline)
+                .map(|is| is.multiline)
                 .unwrap_or(false);
 
             let (input_width, input_height) = dom
@@ -198,7 +198,7 @@ pub fn handle_cursor_moved(
                     let font_size = node.style.text.font_size;
                     let scroll_offset = is.scroll_offset;
                     let scroll_offset_y = is.scroll_offset_y;
-                    let is_multiline = is.model.multiline;
+                    let is_multiline = is.multiline;
                     let padding = node.style.padding.left as f64;
                     let input_padding = if padding > 0.0 { padding } else { 8.0 };
                     let pad_top = node.style.padding.top;
@@ -432,7 +432,7 @@ pub fn handle_mouse_input(
                         let font_size = node.style.text.font_size;
                         let scroll_offset = is.scroll_offset;
                         let scroll_offset_y = is.scroll_offset_y;
-                        let is_multiline = is.model.multiline;
+                        let is_multiline = is.multiline;
                         let padding = node.style.padding.left as f64;
                         let input_padding = if padding > 0.0 { padding } else { 8.0 };
                         let pad_top = node.style.padding.top;
@@ -577,7 +577,7 @@ pub fn handle_mouse_input(
 
 pub fn handle_keyboard_input(
     dom: &mut Dom,
-    handle: &mut Window,
+    _handle: &mut Window,
     wid: u32,
     key_event: &winit::event::KeyEvent,
     modifiers: u32,
@@ -609,148 +609,26 @@ pub fn handle_keyboard_input(
             );
 
             if is_vertical_nav {
-                let direction: i32 =
-                    if key_event.logical_key == Key::Named(NamedKey::ArrowUp) { -1 } else { 1 };
+                let is_up = key_event.logical_key == Key::Named(NamedKey::ArrowUp);
                 let extend = shift;
 
-                let nav_info = dom.nodes.get(focused_id).and_then(|node| {
-                    node.behavior.as_input().map(|is| {
-                        let display_text = is.display_text();
-                        let font_size = node.style.text.font_size;
-                        let cursor_pos = is.model.selection.active;
-                        let saved_sticky_x = is.sticky_x;
-                        let padding = node.style.padding.left;
-                        let input_padding = if padding > 0.0 { padding } else { 8.0 };
-                        let taffy_node = node.taffy_node;
-                        (
-                            display_text,
-                            font_size,
-                            cursor_pos,
-                            saved_sticky_x,
-                            input_padding,
-                            taffy_node,
-                        )
-                    })
-                });
-
-                if let Some((
-                    display_text,
-                    font_size,
-                    cursor_pos,
-                    saved_sticky_x,
-                    input_padding,
-                    taffy_node,
-                )) = nav_info
-                {
-                    let wrap_width = dom
-                        .taffy
-                        .layout(taffy_node)
-                        .map(|l| l.size.width as f32 - input_padding * 2.0)
-                        .unwrap_or(200.0);
-
-                    let positions = handle
-                        .text_renderer
-                        .grapheme_positions_2d(&display_text, font_size, Some(wrap_width));
-
-                    let line_height = (font_size * 1.2).round();
-                    let cur_pos = if cursor_pos < positions.len() {
-                        positions[cursor_pos]
-                    } else {
-                        *positions.last().unwrap()
-                    };
-
-                    let mut line_ys: Vec<f32> = Vec::new();
-                    for pos in &positions {
-                        if line_ys
-                            .last()
-                            .map_or(true, |&last| (pos.y - last).abs() > 1.0)
-                        {
-                            line_ys.push(pos.y);
-                        }
-                    }
-
-                    let cur_line_idx = line_ys
-                        .iter()
-                        .rposition(|&ly| cur_pos.y >= ly - 0.5)
-                        .unwrap_or(0);
-
-                    let target_line_idx = if direction < 0 {
-                        if cur_line_idx == 0 {
-                            None
+                if let Some(node) = dom.nodes.get_mut(focused_id) {
+                    if let Some(is) = node.behavior.as_input_mut() {
+                        let (_, cur_col) = is.model.cursor_rowcol();
+                        let sticky = is.sticky_col.unwrap_or(cur_col);
+                        if is_up {
+                            is.model.move_up(extend, Some(sticky));
                         } else {
-                            Some(cur_line_idx - 1)
+                            is.model.move_down(extend, Some(sticky));
                         }
-                    } else {
-                        if cur_line_idx >= line_ys.len() - 1 {
-                            None
-                        } else {
-                            Some(cur_line_idx + 1)
-                        }
-                    };
-
-                    let target_idx = if let Some(tl_idx) = target_line_idx {
-                        let target_x = saved_sticky_x.unwrap_or(cur_pos.x);
-                        let target_line_y = line_ys[tl_idx];
-                        let mut best_idx = 0;
-                        let mut best_dist = f32::MAX;
-                        for (i, pos) in positions.iter().enumerate() {
-                            if (pos.y - target_line_y).abs() < line_height * 0.5 {
-                                let dist = (pos.x - target_x).abs();
-                                if dist < best_dist {
-                                    best_dist = dist;
-                                    best_idx = i;
-                                }
-                            }
-                        }
-                        let sticky = saved_sticky_x.unwrap_or(cur_pos.x);
-                        if let Some(node) = dom.nodes.get_mut(focused_id) {
-                            if let Some(is) = node.behavior.as_input_mut() {
-                                is.move_to(best_idx, extend);
-                                is.sticky_x = Some(sticky);
-                            }
-                        }
-                        best_idx
-                    } else {
-                        let snap_idx = if direction < 0 { 0 } else { positions.len() - 1 };
-                        if let Some(node) = dom.nodes.get_mut(focused_id) {
-                            if let Some(is) = node.behavior.as_input_mut() {
-                                is.move_to(snap_idx, extend);
-                            }
-                        }
-                        snap_idx
-                    };
-
-                    let new_cursor_y = if target_idx < positions.len() {
-                        positions[target_idx].y
-                    } else {
-                        positions.last().map(|p| p.y).unwrap_or(0.0)
-                    };
-                    let input_height = dom
-                        .taffy
-                        .layout(taffy_node)
-                        .map(|l| l.size.height as f32)
-                        .unwrap_or(100.0);
-                    let top_pad = {
-                        let pt = dom
-                            .nodes
-                            .get(focused_id)
-                            .map(|n| n.style.padding.top)
-                            .unwrap_or(0.0);
-                        if pt > 0.0 { pt } else { 4.0 }
-                    };
-                    if let Some(node) = dom.nodes.get_mut(focused_id) {
-                        if let Some(is) = node.behavior.as_input_mut() {
-                            is.update_scroll_y(
-                                new_cursor_y,
-                                line_height,
-                                input_height - top_pad * 2.0,
-                            );
-                        }
+                        is.sticky_col = Some(sticky);
+                        is.sticky_x = None;
+                        is.reset_blink();
                     }
-
-                    needs_redraw = true;
-                    handled_by_input = true;
                 }
+
+                needs_redraw = true;
+                handled_by_input = true;
             } else {
                 // Non-vertical key: delegate to InputState::handle_key
                 if let Some(node) = dom.nodes.get_mut(focused_id) {
@@ -758,7 +636,7 @@ pub fn handle_keyboard_input(
                         let result = input_state.handle_key(&key_event.logical_key, modifiers);
                         match result {
                             input::KeyResult::Edit(edit) => {
-                                let value = input_state.model.text.clone();
+                                let value = input_state.model.text();
                                 let input_type = match edit.kind {
                                     input::EditKind::Insert => "insertText",
                                     input::EditKind::DeleteBackward => "deleteContentBackward",
