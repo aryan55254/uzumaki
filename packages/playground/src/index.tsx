@@ -3,7 +3,7 @@ import { render } from 'uzumaki/react';
 import { App as DashboardApp } from './app';
 import { App as CounterApp } from './counter';
 import { useState } from 'react';
-import { ACCENT_ORANGE, BASE_BG, BORDER, PANEL } from './styles';
+import { ACCENT_ORANGE, BASE_BG, BORDER, PANEL, SUBTEXT } from './styles';
 import { Button } from './button';
 
 const window = new Window('main', {
@@ -69,6 +69,22 @@ function Playground() {
         <Button onClick={() => setExample(null)}>Examples</Button>
       </view>
       {exampleMap[example]}
+
+      {/* Footer */}
+      <view
+        display="flex"
+        items="center"
+        h="32"
+        flexShrink={0}
+        px="16"
+        bg={PANEL}
+        borderColor={BORDER}
+        borderTop="1"
+      >
+        <text fontSize="16" color={SUBTEXT}>
+          Uzumaki v0.1.0
+        </text>
+      </view>
     </view>
   );
 }

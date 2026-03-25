@@ -136,22 +136,6 @@ function App() {
         {/* Main content area */}
         {routeRenderer()}
       </view>
-
-      {/* Footer */}
-      <view
-        display="flex"
-        items="center"
-        h="32"
-        flexShrink={0}
-        px="16"
-        bg={PANEL}
-        borderColor={BORDER}
-        borderTop="1"
-      >
-        <text fontSize="16" color={SUBTEXT}>
-          Uzumaki v0.1.0
-        </text>
-      </view>
     </view>
   );
 }
@@ -190,7 +174,15 @@ function Dashboard() {
   const [showRecentActivity, setShowRecentActivity] = useState(true);
 
   return (
-    <view scrollable minH={0} display="flex" flexDir="col" flexGrow="1" p="16" gap="16">
+    <view
+      scrollable
+      minH={0}
+      display="flex"
+      flexDir="col"
+      flexGrow="1"
+      p="30"
+      gap="16"
+    >
       {/* Page title */}
       <text fontSize="24" color={TEXT_COLOR}>
         Dashboard
@@ -374,7 +366,8 @@ function InputDemo() {
     onChange: (v) => setPwLength(v.length),
   });
   const multiInput = useInput('', {
-    onChange: (v) => setMultiInfo(`${v.length} chars, ${v.split('\n').length} lines`),
+    onChange: (v) =>
+      setMultiInfo(`${v.length} chars, ${v.split('\n').length} lines`),
   });
 
   return (
