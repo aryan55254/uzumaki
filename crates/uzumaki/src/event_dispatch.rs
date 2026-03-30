@@ -409,15 +409,19 @@ pub fn handle_mouse_input(
                 if clicked_is_input {
                     let nid = js_target.unwrap();
 
-                    // TODO thriple click
-                    // Double-click detection
+                    // Multi-click detection (double=word, triple=line, quad=select all)
                     let now = std::time::Instant::now();
-                    let is_double_click = dom.last_click_node == Some(nid)
+                    let is_consecutive = dom.last_click_node == Some(nid)
                         && dom
                             .last_click_time
                             .map_or(false, |t| now.duration_since(t).as_millis() < 400);
                     dom.last_click_time = Some(now);
                     dom.last_click_node = Some(nid);
+                    if is_consecutive {
+                        dom.click_count = (dom.click_count + 1).min(4);
+                    } else {
+                        dom.click_count = 1;
+                    }
 
                     // Focus if not already focused
                     if old_focus != Some(nid) {
@@ -519,12 +523,27 @@ pub fn handle_mouse_input(
 
                         if let Some(node) = dom.nodes.get_mut(nid) {
                             if let Some(is) = node.behavior.as_input_mut() {
-                                if is_double_click {
-                                    let (ws, we) = is.word_at(grapheme_idx);
-                                    is.selection.anchor = ws;
-                                    is.selection.active = we;
-                                } else {
-                                    is.selection.set_cursor(grapheme_idx);
+                                match dom.click_count {
+                                    2 => {
+                                        // Double-click: select word
+                                        let (ws, we) = is.word_at(grapheme_idx);
+                                        is.selection.anchor = ws;
+                                        is.selection.active = we;
+                                    }
+                                    3 => {
+                                        // Triple-click: select line/paragraph
+                                        let (ls, le) = is.line_at(grapheme_idx);
+                                        is.selection.anchor = ls;
+                                        is.selection.active = le;
+                                    }
+                                    4 => {
+                                        // Quad-click: select all
+                                        is.select_all();
+                                    }
+                                    _ => {
+                                        // Single click: place cursor
+                                        is.selection.set_cursor(grapheme_idx);
+                                    }
                                 }
                                 is.reset_blink();
                             }

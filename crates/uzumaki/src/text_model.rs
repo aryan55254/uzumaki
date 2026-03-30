@@ -168,6 +168,17 @@ impl TextModel {
         p
     }
 
+    /// Find line boundaries around a flat grapheme position.
+    /// Returns (start, end) where end is past the last grapheme of the line
+    /// (not including the \n itself).
+    pub fn line_at(&self, grapheme_idx: usize) -> (usize, usize) {
+        let (row, _col) = self.buffer.flat_to_rowcol(grapheme_idx);
+        let start = self.buffer.rowcol_to_flat(row, 0);
+        let line_len = self.buffer.line_grapheme_count(row);
+        let end = start + line_len;
+        (start, end)
+    }
+
     /// Find word boundaries around a position.
     pub fn word_at(&self, grapheme_idx: usize) -> (usize, usize) {
         let text = self.buffer.text();

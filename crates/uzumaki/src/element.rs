@@ -157,10 +157,12 @@ pub struct Dom {
     // oh god please move this to input state
     /// Input node being dragged for selection.
     pub dragging_input: Option<NodeId>,
-    /// Last click time (for double-click detection).
+    /// Last click time (for multi-click detection).
     pub last_click_time: Option<std::time::Instant>,
-    /// Last clicked node (for double-click detection).
+    /// Last clicked node (for multi-click detection).
     pub last_click_node: Option<NodeId>,
+    /// Consecutive click count (1=normal, 2=word, 3=line, 4=select all).
+    pub click_count: u8,
     /// Whether the OS window is focused.
     pub window_focused: bool,
     /// Scroll thumb rects from last paint pass (for hit testing).
@@ -188,6 +190,7 @@ impl Dom {
             dragging_input: None,
             last_click_time: None,
             last_click_node: None,
+            click_count: 0,
             window_focused: true,
             scroll_thumbs: Vec::new(),
             scroll_drag: None,

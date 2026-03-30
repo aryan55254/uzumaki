@@ -436,6 +436,10 @@ impl InputState {
         self.model.word_at(grapheme_idx)
     }
 
+    pub fn line_at(&self, grapheme_idx: usize) -> (usize, usize) {
+        self.model.line_at(grapheme_idx)
+    }
+
     pub fn set_value(&mut self, value: String) {
         self.model.set_value(value);
         let count = self.model.grapheme_count();
