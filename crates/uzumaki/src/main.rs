@@ -1483,7 +1483,8 @@ fn main() {
     args.next();
     let entry_point = args.next().expect("no entry point provided");
     let cwd = std::env::current_dir().expect("error getting current directory");
-    let entry_path = cwd.join(entry_point);
+    let entry_path =
+        std::fs::canonicalize(cwd.join(entry_point)).expect("invalid entry point path");
     let mut app = tokio_runtime
         .block_on(async { Application::new(entry_path).expect("error creating application") });
     app.tokio_runtime = Some(tokio_runtime);
