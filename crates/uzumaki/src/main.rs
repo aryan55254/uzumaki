@@ -471,6 +471,11 @@ pub fn op_set_f32_prop(
                 sync_taffy(&mut entry.dom, nid);
                 return;
             }
+            54 => {
+                // TextSelect
+                entry.dom.nodes[nid].text_select = Some(v > 0.5);
+                return;
+            }
             _ => {}
         }
 
@@ -845,6 +850,48 @@ pub fn op_get_ancestor_path(
     })
 }
 
+// ── Selection query ops ──────────────────────────────────────────────
+
+#[op2]
+#[serde]
+pub fn op_get_selection(state: &mut OpState, #[smi] window_id: u32) -> serde_json::Value {
+    let app_state = state.borrow::<SharedAppState>().clone();
+    with_state(&app_state, |s| {
+        let entry = s.windows.get(&window_id).expect("window not found");
+        let dom = &entry.dom;
+        let Some(sel) = &dom.view_selection else {
+            return serde_json::Value::Null;
+        };
+        let run_length = dom
+            .text_select_runs
+            .iter()
+            .find(|r| r.root_id == sel.root)
+            .map(|r| r.total_graphemes)
+            .unwrap_or(0);
+        let text = dom.view_selected_text();
+        serde_json::json!({
+            "rootNodeId": serde_json::to_value(sel.root).unwrap(),
+            "anchorOffset": sel.anchor,
+            "activeOffset": sel.active,
+            "start": sel.start(),
+            "end": sel.end(),
+            "runLength": run_length,
+            "isCollapsed": sel.is_collapsed(),
+            "text": text,
+        })
+    })
+}
+
+#[op2]
+#[string]
+pub fn op_get_selected_text(state: &mut OpState, #[smi] window_id: u32) -> String {
+    let app_state = state.borrow::<SharedAppState>().clone();
+    with_state(&app_state, |s| {
+        let entry = s.windows.get(&window_id).expect("window not found");
+        entry.dom.view_selected_text()
+    })
+}
+
 fn sync_taffy(dom: &mut Dom, node_id: NodeId) {
     let node = &dom.nodes[node_id];
     let taffy_style = node.style.to_taffy();
@@ -888,6 +935,8 @@ extension!(
     op_get_window_height,
     op_get_window_title,
     op_get_ancestor_path,
+    op_get_selection,
+    op_get_selected_text,
   ],
   esm_entry_point = "ext:uzumaki/00_init.js",
   esm = [ dir "core", "00_init.js" ],
@@ -1188,6 +1237,7 @@ impl ApplicationHandler<UserEvent> for Application {
                     eprintln!("Failed to create window");
                     return;
                 };
+                winit_window.set_ime_allowed(true);
 
                 let winit_window = Arc::new(winit_window);
                 let winit_id = winit_window.id();
@@ -1388,6 +1438,22 @@ impl ApplicationHandler<UserEvent> for Application {
                                 self.dispatch_event_to_js(&event);
                             }
                         }
+
+                        // Handle view text selection shortcuts (only when no input is focused)
+                        {
+                            let mut state = self.app_state.borrow_mut();
+                            if let Some(entry) = state.windows.get_mut(&wid) {
+                                if entry.dom.focused_node.is_none() {
+                                    if event_dispatch::handle_key_for_view_selection(
+                                        &mut entry.dom,
+                                        &key_event,
+                                        modifiers,
+                                    ) {
+                                        needs_redraw = true;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1425,6 +1491,10 @@ impl ApplicationHandler<UserEvent> for Application {
                     }
                     needs_redraw = true;
                 }
+            }
+            WindowEvent::Ime(_ime) => {
+                // todo (aadi): do this next
+                // println!("IME EVENT: {:#?}", ime);
             }
             WindowEvent::CursorLeft { .. } => {
                 let mut state = self.app_state.borrow_mut();
