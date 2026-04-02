@@ -44,6 +44,7 @@ use winit::{
 
 use crate::element::{Dom, NodeId};
 use crate::gpu::GpuContext;
+use crate::selection::{DomSelection, SelectionRange};
 use crate::style::*;
 
 pub static UZUMAKI_SNAPSHOT: Option<&[u8]> = Some(include_bytes!(concat!(
@@ -764,23 +765,10 @@ pub fn op_focus_input(
     let app_state = state.borrow::<SharedAppState>().clone();
     with_state(&app_state, |s| {
         let entry = s.windows.get_mut(&window_id).expect("window not found");
-        if let Some(old_id) = entry.dom.focused_node {
-            if old_id != nid {
-                if let Some(old_node) = entry.dom.nodes.get_mut(old_id) {
-                    if let Some(is) = old_node.behavior.as_input_mut() {
-                        is.focused = false;
-                    }
-                }
-            }
-        }
-        if let Some(node) = entry.dom.nodes.get_mut(nid) {
-            if let Some(is) = node.behavior.as_input_mut() {
-                is.focused = true;
-                is.reset_blink();
-            }
-        }
-        entry.dom.focused_node = Some(nid);
-        entry.dom.sync_input_selection();
+        entry.dom.set_selection(DomSelection {
+            root: nid,
+            range: SelectionRange::default(),
+        });
     });
 }
 

@@ -31,7 +31,7 @@ impl SelectionRange {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DomSelection {
     /// The textSelect root that owns this selection.
     pub root: NodeId,

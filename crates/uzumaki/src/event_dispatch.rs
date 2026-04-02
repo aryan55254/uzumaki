@@ -286,7 +286,6 @@ pub fn handle_cursor_moved(
                     }
                 }
                 scroll_input_to_cursor(dom, handle);
-                dom.sync_input_selection();
                 needs_redraw = true;
             }
         }
@@ -564,22 +563,10 @@ pub fn handle_mouse_input(
                     // Focus if not already focused
                     if old_focus != Some(nid) {
                         if let Some(old_id) = old_focus {
-                            if let Some(old_node) = dom.nodes.get_mut(old_id) {
-                                if let Some(is) = old_node.behavior.as_input_mut() {
-                                    is.focused = false;
-                                }
-                            }
                             events.push(AppEvent::Blur(FocusEventData {
                                 window_id: wid,
                                 node_id: old_id,
                             }));
-                        }
-                        dom.focused_node = Some(nid);
-                        if let Some(node) = dom.nodes.get_mut(nid) {
-                            if let Some(is) = node.behavior.as_input_mut() {
-                                is.focused = true;
-                                is.reset_blink();
-                            }
                         }
                         events.push(AppEvent::Focus(FocusEventData {
                             window_id: wid,
@@ -659,6 +646,13 @@ pub fn handle_mouse_input(
                             0
                         };
 
+                        // Ensure selection root is set to this input before
+                        // any input methods touch the shared range.
+                        dom.set_selection(DomSelection {
+                            root: nid,
+                            range: SelectionRange::default(),
+                        });
+
                         if let Some(node) = dom.nodes.get_mut(nid) {
                             if let Some(is) = node.behavior.as_input_mut() {
                                 match dom.click_count {
@@ -687,7 +681,6 @@ pub fn handle_mouse_input(
                     }
 
                     scroll_input_to_cursor(dom, handle);
-                    dom.sync_input_selection();
                     dom.dragging_input = Some(nid);
                 } else {
                     // Clicked non-input: blur focused input
@@ -993,7 +986,6 @@ pub fn handle_key_for_input(
 
     if needs_redraw {
         scroll_input_to_cursor(dom, handle);
-        dom.sync_input_selection();
     }
 
     (needs_redraw, events)

@@ -1,4 +1,6 @@
+use std::cell::Cell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use cosmic_text::Attrs;
 use slotmap::{SlotMap, new_key_type};
@@ -8,13 +10,64 @@ use vello::kurbo::{Affine, Rect, RoundedRect, RoundedRectRadii};
 use vello::peniko::{Color as VelloColor, Fill};
 
 use crate::elements::input::{InputRenderInfo, compute_selection_rects};
-use crate::input::{BaseInputState, DefaultRangeProvider};
+use crate::input::{BaseInputState, RangeProvider};
 use crate::interactivity::{HitTestState, HitboxStore, Interactivity};
 use crate::selection::{DomSelection, SelectionRange};
 use crate::style::{Bounds, Color, Style};
 use crate::text::TextRenderer;
 
-pub type InputState = BaseInputState<DefaultRangeProvider>;
+#[derive(Debug, Clone)]
+pub struct SharedSelectionState {
+    selection: Rc<Cell<Option<DomSelection>>>,
+}
+
+impl SharedSelectionState {
+    pub fn new() -> Self {
+        Self {
+            selection: Rc::new(Cell::new(None)),
+        }
+    }
+
+    pub fn clear(&self) {
+        self.selection.set(None);
+    }
+
+    pub fn range(&self) -> Option<SelectionRange> {
+        self.selection.get().map(|s| s.range)
+    }
+
+    pub fn get(&self) -> Option<DomSelection> {
+        self.selection.get()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.selection.get().is_none()
+    }
+
+    pub fn set(&self, selection: DomSelection) {
+        self.selection.set(Some(selection));
+    }
+}
+
+#[derive(Debug)]
+pub struct DomRangeProvider {
+    pub selection: SharedSelectionState,
+}
+
+impl RangeProvider for DomRangeProvider {
+    fn get_range(&self) -> SelectionRange {
+        self.selection.range().unwrap_or_default()
+    }
+
+    fn set_range(&mut self, range: SelectionRange) {
+        if let Some(mut sel) = self.selection.get() {
+            sel.range = range;
+            self.selection.set(sel);
+        }
+    }
+}
+
+pub type InputState = BaseInputState<DomRangeProvider>;
 
 new_key_type! {
     pub struct NodeId;
@@ -134,7 +187,6 @@ impl ElementBehavior for TextBehavior {
     }
 }
 
-#[derive(Default)]
 pub struct InputBehavior {
     pub state: InputState,
 }
@@ -144,8 +196,7 @@ impl InputBehavior {
         Self { state }
     }
 
-    pub fn new_single_line() -> Self {
-        let mut state = InputState::default();
+    pub fn new_single_line(mut state: InputState) -> Self {
         state.multiline = false;
         Self::new(state)
     }
@@ -219,7 +270,7 @@ pub struct Dom {
     /// to prevent inner scrollable views from stealing wheel events mid-scroll.
     pub scroll_lock: Option<(NodeId, std::time::Instant)>,
     /// Current text selection within a textSelect view.
-    selection: Option<DomSelection>,
+    pub selection: SharedSelectionState,
     /// textSelect root being dragged for selection.
     pub dragging_view_selection: Option<NodeId>,
     /// Text runs for textSelect subtrees, rebuilt each frame.
@@ -247,7 +298,7 @@ impl Dom {
             scroll_thumbs: Vec::new(),
             scroll_drag: None,
             scroll_lock: None,
-            selection: None,
+            selection: SharedSelectionState::new(),
             dragging_view_selection: None,
             text_select_runs: Vec::new(),
         }
@@ -355,7 +406,11 @@ impl Dom {
             next_sibling: None,
             prev_sibling: None,
             taffy_node,
-            behavior: Box::new(InputBehavior::new_single_line()),
+            behavior: Box::new(InputBehavior::new_single_line(InputState::new(
+                DomRangeProvider {
+                    selection: self.selection.clone(),
+                },
+            ))),
             style,
             interactivity: Interactivity::new(),
             scroll_state: None,
@@ -1254,7 +1309,7 @@ impl Dom {
     /// Returns a map from NodeId → (local_sel_start, local_sel_end) in grapheme units.
     fn compute_text_selections_map(&self) -> HashMap<NodeId, (usize, usize)> {
         let mut map = HashMap::new();
-        let Some(sel) = &self.selection else {
+        let Some(sel) = self.selection.get() else {
             return map;
         };
         if sel.is_collapsed() {
@@ -1313,9 +1368,10 @@ impl Dom {
 
     /// Get the currently selected text content (input or view).
     pub fn selected_text(&self) -> String {
-        let Some(sel) = &self.selection else {
+        let Some(sel) = self.selection.get() else {
             return String::new();
         };
+
         if sel.is_collapsed() {
             return String::new();
         }
@@ -1341,7 +1397,7 @@ impl Dom {
     /// Get the current selection range as flat grapheme offsets.
     /// Returns (start, end) where start <= end.
     pub fn selection_range(&self) -> Option<(usize, usize)> {
-        let sel = self.selection.as_ref()?;
+        let sel = self.selection.get()?;
         if sel.is_collapsed() {
             return None;
         }
@@ -1351,14 +1407,14 @@ impl Dom {
     /// Get the full selection state: root node, anchor, and active offsets.
     /// Useful for text editors that need to know the direction of selection.
     pub fn selection_state(&self) -> Option<(NodeId, usize, usize)> {
-        let sel = self.selection.as_ref()?;
+        let sel = self.selection.get()?;
         Some((sel.root, sel.anchor(), sel.active()))
     }
 
     /// Get the total grapheme count in the text run containing the current selection.
     /// For input selections, returns the input's grapheme count.
     pub fn selection_run_length(&self) -> Option<usize> {
-        let sel = self.selection.as_ref()?;
+        let sel = self.selection.get()?;
         // Input selection
         if let Some(node) = self.nodes.get(sel.root) {
             if let Some(is) = node.behavior.as_input() {
@@ -1373,44 +1429,46 @@ impl Dom {
         Some(run.total_graphemes)
     }
 
-    pub fn selection_ref(&self) -> Option<&DomSelection> {
-        self.selection.as_ref()
-    }
-
     pub fn selection(&self) -> Option<DomSelection> {
-        self.selection.clone()
+        self.selection.get()
     }
 
     pub fn set_selection(&mut self, selection: DomSelection) {
-        self.selection = Some(selection);
-    }
-    /// Set the selection programmatically.
-    pub fn set_selection_2(&mut self, root: NodeId, anchor: usize, active: usize) {
-        self.selection = Some(DomSelection {
-            root,
-            range: SelectionRange { anchor, active },
-        });
+        let root = selection.root;
+
+        // If the target node is focusable (input, future: content-editable),
+        // handle focus transfer automatically.
+        let is_focusable = self
+            .nodes
+            .get(root)
+            .map(|n| n.behavior.is_input())
+            .unwrap_or(false);
+
+        if is_focusable {
+            if let Some(old_id) = self.focused_node {
+                if old_id != root {
+                    if let Some(old_node) = self.nodes.get_mut(old_id) {
+                        if let Some(is) = old_node.behavior.as_input_mut() {
+                            is.focused = false;
+                        }
+                    }
+                }
+            }
+            self.focused_node = Some(root);
+            if let Some(node) = self.nodes.get_mut(root) {
+                if let Some(is) = node.behavior.as_input_mut() {
+                    is.focused = true;
+                    is.reset_blink();
+                }
+            }
+        }
+
+        self.selection.set(selection);
     }
 
     /// Clear the selection.
     pub fn clear_selection(&mut self) {
-        self.selection = None;
-    }
-
-    /// Sync the focused input's SelectionRange into Dom.selection.
-    /// Call this after any operation that mutates InputState.range so that
-    /// Dom.selection remains the single canonical selection.
-    pub fn sync_input_selection(&mut self) {
-        if let Some(nid) = self.focused_node {
-            if let Some(node) = self.nodes.get(nid) {
-                if let Some(is) = node.behavior.as_input() {
-                    self.selection = Some(DomSelection {
-                        root: nid,
-                        range: is.range(),
-                    });
-                }
-            }
-        }
+        self.selection.clear();
     }
 }
 
