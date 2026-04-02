@@ -1304,14 +1304,21 @@ impl Dom {
     // ── Selection query API ─────────────────────────────────────────
     // Designed for clipboard and text editor consumers.
 
-    /// Get the currently selected text content within a textSelect view.
-    pub fn view_selected_text(&self) -> String {
+    /// Get the currently selected text content (input or view).
+    pub fn selected_text(&self) -> String {
         let Some(sel) = &self.selection else {
             return String::new();
         };
         if sel.is_collapsed() {
             return String::new();
         }
+        // Input selection: delegate to InputState
+        if let Some(node) = self.nodes.get(sel.root) {
+            if let Some(is) = node.behavior.as_input() {
+                return is.selected_text();
+            }
+        }
+        // View text selection: look up in text_select_runs
         let Some(run) = self.text_select_runs.iter().find(|r| r.root_id == sel.root) else {
             return String::new();
         };
@@ -1324,9 +1331,9 @@ impl Dom {
             .collect::<String>()
     }
 
-    /// Get the current view selection range as flat grapheme offsets.
+    /// Get the current selection range as flat grapheme offsets.
     /// Returns (start, end) where start <= end.
-    pub fn view_selection_range(&self) -> Option<(usize, usize)> {
+    pub fn selection_range(&self) -> Option<(usize, usize)> {
         let sel = self.selection.as_ref()?;
         if sel.is_collapsed() {
             return None;
@@ -1336,14 +1343,22 @@ impl Dom {
 
     /// Get the full selection state: root node, anchor, and active offsets.
     /// Useful for text editors that need to know the direction of selection.
-    pub fn view_selection_state(&self) -> Option<(NodeId, usize, usize)> {
+    pub fn selection_state(&self) -> Option<(NodeId, usize, usize)> {
         let sel = self.selection.as_ref()?;
         Some((sel.root, sel.anchor(), sel.active()))
     }
 
     /// Get the total grapheme count in the text run containing the current selection.
-    pub fn view_selection_run_length(&self) -> Option<usize> {
+    /// For input selections, returns the input's grapheme count.
+    pub fn selection_run_length(&self) -> Option<usize> {
         let sel = self.selection.as_ref()?;
+        // Input selection
+        if let Some(node) = self.nodes.get(sel.root) {
+            if let Some(is) = node.behavior.as_input() {
+                return Some(is.grapheme_count());
+            }
+        }
+        // View text selection
         let run = self
             .text_select_runs
             .iter()
@@ -1351,17 +1366,33 @@ impl Dom {
         Some(run.total_graphemes)
     }
 
-    /// Set the view selection programmatically.
-    pub fn set_view_selection(&mut self, root: NodeId, anchor: usize, active: usize) {
+    /// Set the selection programmatically.
+    pub fn set_selection(&mut self, root: NodeId, anchor: usize, active: usize) {
         self.selection = Some(DomSelection {
             root,
             range: SelectionRange { anchor, active },
         });
     }
 
-    /// Clear the view selection.
-    pub fn clear_view_selection(&mut self) {
+    /// Clear the selection.
+    pub fn clear_selection(&mut self) {
         self.selection = None;
+    }
+
+    /// Sync the focused input's SelectionRange into Dom.selection.
+    /// Call this after any operation that mutates InputState.range so that
+    /// Dom.selection remains the single canonical selection.
+    pub fn sync_input_selection(&mut self) {
+        if let Some(nid) = self.focused_node {
+            if let Some(node) = self.nodes.get(nid) {
+                if let Some(is) = node.behavior.as_input() {
+                    self.selection = Some(DomSelection {
+                        root: nid,
+                        range: is.range.clone(),
+                    });
+                }
+            }
+        }
     }
 }
 

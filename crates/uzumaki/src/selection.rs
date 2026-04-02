@@ -31,7 +31,6 @@ impl SelectionRange {
     }
 }
 
-/// Selection state for text within a textSelect view.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DomSelection {
     /// The textSelect root that owns this selection.

@@ -780,6 +780,7 @@ pub fn op_focus_input(
             }
         }
         entry.dom.focused_node = Some(nid);
+        entry.dom.sync_input_selection();
     });
 }
 
@@ -863,13 +864,8 @@ pub fn op_get_selection(state: &mut OpState, #[smi] window_id: u32) -> serde_jso
         let Some(sel) = &dom.selection else {
             return serde_json::Value::Null;
         };
-        let run_length = dom
-            .text_select_runs
-            .iter()
-            .find(|r| r.root_id == sel.root)
-            .map(|r| r.total_graphemes)
-            .unwrap_or(0);
-        let text = dom.view_selected_text();
+        let run_length = dom.selection_run_length().unwrap_or(0);
+        let text = dom.selected_text();
         // bro use a typed struct  TT
         serde_json::json!({
             "rootNodeId": serde_json::to_value(sel.root).unwrap(),
@@ -890,7 +886,7 @@ pub fn op_get_selected_text(state: &mut OpState, #[smi] window_id: u32) -> Strin
     let app_state = state.borrow::<SharedAppState>().clone();
     with_state(&app_state, |s| {
         let entry = s.windows.get(&window_id).expect("window not found");
-        entry.dom.view_selected_text()
+        entry.dom.selected_text()
     })
 }
 

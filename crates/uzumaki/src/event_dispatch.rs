@@ -284,6 +284,7 @@ pub fn handle_cursor_moved(
                     }
                 }
                 scroll_input_to_cursor(dom, handle);
+                dom.sync_input_selection();
                 needs_redraw = true;
             }
         }
@@ -543,9 +544,6 @@ pub fn handle_mouse_input(
                 if clicked_is_input {
                     let nid = js_target.unwrap();
 
-                    // Clicking an input clears any active view text selection
-                    dom.selection = None;
-
                     // Multi-click detection (double=word, triple=line, quad=select all)
                     let now = std::time::Instant::now();
                     let is_consecutive = dom.last_click_node == Some(nid)
@@ -686,6 +684,7 @@ pub fn handle_mouse_input(
                     }
 
                     scroll_input_to_cursor(dom, handle);
+                    dom.sync_input_selection();
                     dom.dragging_input = Some(nid);
                 } else {
                     // Clicked non-input: blur focused input
@@ -990,6 +989,7 @@ pub fn handle_key_for_input(
 
     if needs_redraw {
         scroll_input_to_cursor(dom, handle);
+        dom.sync_input_selection();
     }
 
     (needs_redraw, events)
