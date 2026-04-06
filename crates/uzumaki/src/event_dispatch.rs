@@ -1,6 +1,7 @@
 use serde::Serialize;
 use winit::keyboard::{Key, NamedKey};
 
+use crate::clipboard::SystemClipboard;
 use crate::element::{Dom, NodeId, ScrollDragState};
 use crate::input;
 use crate::selection::{DomSelection, SelectionRange};
@@ -63,6 +64,15 @@ pub struct FocusEventData {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipboardEventData {
+    pub window_id: u32,
+    pub node_id: Option<NodeId>,
+    pub selection_text: Option<String>,
+    pub clipboard_text: Option<String>,
+}
+
+#[derive(Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum AppEvent {
     Click(MouseEventData),
@@ -74,6 +84,9 @@ pub enum AppEvent {
     Input(InputEventData),
     Focus(FocusEventData),
     Blur(FocusEventData),
+    Copy(ClipboardEventData),
+    Cut(ClipboardEventData),
+    Paste(ClipboardEventData),
     #[serde(rename = "windowLoad")]
     WindowLoad(WindowLoadEventData),
     HotReload,
@@ -957,10 +970,12 @@ pub fn handle_key_for_input(
                             let value = input_state.model.text();
                             let input_type = match edit.kind {
                                 input::EditKind::Insert => "insertText",
+                                input::EditKind::InsertFromPaste => "insertFromPaste",
                                 input::EditKind::DeleteBackward => "deleteContentBackward",
                                 input::EditKind::DeleteForward => "deleteContentForward",
                                 input::EditKind::DeleteWordBackward => "deleteWordBackward",
                                 input::EditKind::DeleteWordForward => "deleteWordForward",
+                                input::EditKind::DeleteByCut => "deleteByCut",
                             };
                             events.push(AppEvent::Input(InputEventData {
                                 window_id: wid,
@@ -1071,6 +1086,278 @@ pub fn handle_key_for_view_selection(
         }
         _ => false,
     }
+}
+
+// ── Clipboard command pipeline ──────────────────────────────────────
+
+/// Identifies the target of a clipboard operation.
+pub enum ClipboardTarget {
+    /// Focused input node.
+    Input(NodeId),
+    /// Non-input text selection root.
+    ViewSelection(NodeId),
+}
+
+/// A resolved clipboard command ready for event dispatch and default action.
+pub enum ClipboardCommand {
+    Copy {
+        target: Option<NodeId>,
+        selection_text: String,
+    },
+    Cut {
+        target: Option<NodeId>,
+        selection_text: String,
+        is_input: bool,
+    },
+    Paste {
+        target: Option<NodeId>,
+        clipboard_text: Option<String>,
+        is_input: bool,
+    },
+}
+
+/// Resolve the current clipboard target from DOM state.
+fn resolve_clipboard_target(dom: &Dom) -> Option<ClipboardTarget> {
+    if let Some(focused_id) = dom.focused_node {
+        if let Some(node) = dom.nodes.get(focused_id) {
+            if node.behavior.as_input().is_some() {
+                return Some(ClipboardTarget::Input(focused_id));
+            }
+        }
+    }
+    if let Some(sel) = dom.selection() {
+        if !sel.is_collapsed() {
+            return Some(ClipboardTarget::ViewSelection(sel.root));
+        }
+    }
+    None
+}
+
+/// Detect whether a key event is a clipboard shortcut and build the corresponding
+/// command. Returns `None` if the key is not a clipboard shortcut.
+pub fn build_clipboard_command(
+    dom: &Dom,
+    key_event: &winit::event::KeyEvent,
+    modifiers: u32,
+    clipboard: &mut SystemClipboard,
+) -> Option<ClipboardCommand> {
+    use winit::event::ElementState;
+
+    if key_event.state != ElementState::Pressed {
+        return None;
+    }
+
+    let ctrl = modifiers & 1 != 0;
+    if !ctrl {
+        return None;
+    }
+
+    let ch = match &key_event.logical_key {
+        Key::Character(c) => c.as_ref(),
+        _ => return None,
+    };
+
+    match ch {
+        "c" | "C" => {
+            let target = resolve_clipboard_target(dom);
+            let selection_text = match &target {
+                Some(ClipboardTarget::Input(nid)) => {
+                    let node = dom.nodes.get(*nid)?;
+                    let is = node.behavior.as_input()?;
+                    if is.secure {
+                        return None; // Block copy on secure inputs
+                    }
+                    let text = is.selected_text();
+                    if text.is_empty() {
+                        return None;
+                    }
+                    text
+                }
+                Some(ClipboardTarget::ViewSelection(_)) => {
+                    let text = dom.selected_text();
+                    if text.is_empty() {
+                        return None;
+                    }
+                    text
+                }
+                None => return None,
+            };
+            let target_id = match &target {
+                Some(ClipboardTarget::Input(nid)) => Some(*nid),
+                Some(ClipboardTarget::ViewSelection(nid)) => Some(*nid),
+                None => None,
+            };
+            Some(ClipboardCommand::Copy {
+                target: target_id,
+                selection_text,
+            })
+        }
+        "x" | "X" => {
+            let target = resolve_clipboard_target(dom);
+            let (target_id, is_input) = match &target {
+                Some(ClipboardTarget::Input(nid)) => {
+                    let node = dom.nodes.get(*nid)?;
+                    let is = node.behavior.as_input()?;
+                    if is.secure {
+                        return None; // Block cut on secure inputs
+                    }
+                    (Some(*nid), true)
+                }
+                Some(ClipboardTarget::ViewSelection(nid)) => (Some(*nid), false),
+                None => return None,
+            };
+            let selection_text = match &target {
+                Some(ClipboardTarget::Input(nid)) => {
+                    let node = dom.nodes.get(*nid)?;
+                    let is = node.behavior.as_input()?;
+                    let text = is.selected_text();
+                    if text.is_empty() {
+                        return None;
+                    }
+                    text
+                }
+                Some(ClipboardTarget::ViewSelection(_)) => {
+                    let text = dom.selected_text();
+                    if text.is_empty() {
+                        return None;
+                    }
+                    text
+                }
+                None => return None,
+            };
+            Some(ClipboardCommand::Cut {
+                target: target_id,
+                selection_text,
+                is_input,
+            })
+        }
+        "v" | "V" => {
+            let target = resolve_clipboard_target(dom);
+            let (target_id, is_input) = match &target {
+                Some(ClipboardTarget::Input(nid)) => (Some(*nid), true),
+                Some(ClipboardTarget::ViewSelection(nid)) => (Some(*nid), false),
+                None => return None,
+            };
+            let clipboard_text = clipboard.read_text().unwrap_or(None);
+            Some(ClipboardCommand::Paste {
+                target: target_id,
+                clipboard_text,
+                is_input,
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Build the AppEvent for dispatching a clipboard command to JS.
+pub fn clipboard_command_to_event(cmd: &ClipboardCommand, wid: u32) -> AppEvent {
+    match cmd {
+        ClipboardCommand::Copy {
+            target,
+            selection_text,
+        } => AppEvent::Copy(ClipboardEventData {
+            window_id: wid,
+            node_id: *target,
+            selection_text: Some(selection_text.clone()),
+            clipboard_text: None,
+        }),
+        ClipboardCommand::Cut {
+            target,
+            selection_text,
+            ..
+        } => AppEvent::Cut(ClipboardEventData {
+            window_id: wid,
+            node_id: *target,
+            selection_text: Some(selection_text.clone()),
+            clipboard_text: None,
+        }),
+        ClipboardCommand::Paste {
+            target,
+            clipboard_text,
+            ..
+        } => AppEvent::Paste(ClipboardEventData {
+            window_id: wid,
+            node_id: *target,
+            selection_text: None,
+            clipboard_text: clipboard_text.clone(),
+        }),
+    }
+}
+
+/// Apply the default clipboard action. Returns (needs_redraw, follow_up_events).
+pub fn apply_clipboard_command(
+    cmd: ClipboardCommand,
+    dom: &mut Dom,
+    wid: u32,
+    clipboard: &mut SystemClipboard,
+) -> (bool, Vec<AppEvent>) {
+    let mut events = Vec::new();
+    let mut needs_redraw = false;
+
+    match cmd {
+        ClipboardCommand::Copy { selection_text, .. } => {
+            if let Err(e) = clipboard.write_text(&selection_text) {
+                eprintln!("[uzumaki] clipboard write error: {e}");
+            }
+        }
+        ClipboardCommand::Cut {
+            target,
+            selection_text,
+            is_input,
+        } => {
+            if let Err(e) = clipboard.write_text(&selection_text) {
+                eprintln!("[uzumaki] clipboard write error: {e}");
+            }
+            if is_input {
+                if let Some(target_id) = target {
+                    if let Some(node) = dom.nodes.get_mut(target_id) {
+                        if let Some(is) = node.behavior.as_input_mut() {
+                            if let Some((_cut_text, _edit)) = is.cut_selected_text() {
+                                let value = is.model.text();
+                                events.push(AppEvent::Input(InputEventData {
+                                    window_id: wid,
+                                    node_id: target_id,
+                                    value,
+                                    input_type: "deleteByCut".to_string(),
+                                    data: None,
+                                }));
+                                needs_redraw = true;
+                            }
+                        }
+                    }
+                }
+            }
+            // For view selections, cut is a no-op on the content
+        }
+        ClipboardCommand::Paste {
+            target,
+            clipboard_text,
+            is_input,
+        } => {
+            if is_input {
+                if let (Some(target_id), Some(text)) = (target, clipboard_text) {
+                    if let Some(node) = dom.nodes.get_mut(target_id) {
+                        if let Some(is) = node.behavior.as_input_mut() {
+                            if let Some(_edit) = is.paste_text(&text) {
+                                let value = is.model.text();
+                                events.push(AppEvent::Input(InputEventData {
+                                    window_id: wid,
+                                    node_id: target_id,
+                                    value,
+                                    input_type: "insertFromPaste".to_string(),
+                                    data: Some(text),
+                                }));
+                                needs_redraw = true;
+                            }
+                        }
+                    }
+                }
+            }
+            // For view selections, paste is a no-op
+        }
+    }
+
+    (needs_redraw, events)
 }
 
 /// Find the previous word boundary from a flat grapheme index in a text select run.

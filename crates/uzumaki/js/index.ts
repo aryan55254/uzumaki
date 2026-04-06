@@ -1,6 +1,7 @@
 import { eventManager, EventType } from './events';
 
 export { Window } from './window';
+export { clipboard } from './clipboard';
 export { eventManager, EventType } from './events';
 export type {
   EventPhase,
@@ -12,6 +13,7 @@ export type {
   UzumakiKeyboardEvent,
   UzumakiInputEvent,
   UzumakiFocusEvent,
+  UzumakiClipboardEvent,
 } from './events';
 
 interface AppEvent {
@@ -45,6 +47,9 @@ const EVENT_TYPE_MAP: Record<string, EventType> = {
   input: EventType.Input,
   focus: EventType.Focus,
   blur: EventType.Blur,
+  copy: EventType.Copy,
+  cut: EventType.Cut,
+  paste: EventType.Paste,
 };
 
 (globalThis as unknown as any).__uzumaki_on_app_event__ = function (

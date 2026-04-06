@@ -126,6 +126,8 @@ interface Core {
   getAncestorPath(windowId: number, nodeId: NodeId): NodeId[];
   getSelection(windowId: number): SelectionState | null;
   getSelectedText(windowId: number): string;
+  readClipboardText(): string | null;
+  writeClipboardText(text: string): boolean;
 }
 
 export interface SelectionState {

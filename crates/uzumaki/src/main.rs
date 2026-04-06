@@ -1,5 +1,6 @@
 pub mod runtime;
 
+pub mod clipboard;
 pub mod element;
 pub mod elements;
 pub mod event_dispatch;
@@ -64,6 +65,7 @@ pub struct AppState {
     pub winit_id_to_entry_id: HashMap<WindowId, WindowEntryId>,
     pub mouse_buttons: u8,
     pub modifiers: u32,
+    pub clipboard: RefCell<clipboard::SystemClipboard>,
 }
 impl AppState {
     pub fn winit_window_id_to_entry_id(&self, window_id: &WindowId) -> Option<WindowEntryId> {
@@ -876,6 +878,36 @@ pub fn op_get_selected_text(state: &mut OpState, #[smi] window_id: u32) -> Strin
     })
 }
 
+#[op2]
+#[string]
+pub fn op_read_clipboard_text(state: &mut OpState) -> Option<String> {
+    let app_state = state.borrow::<SharedAppState>().clone();
+    let s = app_state.borrow();
+    match s.clipboard.borrow_mut().read_text() {
+        Ok(text) => text,
+        Err(e) => {
+            eprintln!("[uzumaki] clipboard read error: {e}");
+            None
+        }
+    }
+}
+
+#[op2(fast)]
+pub fn op_write_clipboard_text(
+    state: &mut OpState,
+    #[string] text: String,
+) -> bool {
+    let app_state = state.borrow::<SharedAppState>().clone();
+    let s = app_state.borrow();
+    match s.clipboard.borrow_mut().write_text(&text) {
+        Ok(()) => true,
+        Err(e) => {
+            eprintln!("[uzumaki] clipboard write error: {e}");
+            false
+        }
+    }
+}
+
 fn sync_taffy(dom: &mut Dom, node_id: NodeId) {
     let node = &dom.nodes[node_id];
     let taffy_style = node.style.to_taffy();
@@ -921,6 +953,8 @@ extension!(
     op_get_ancestor_path,
     op_get_selection,
     op_get_selected_text,
+    op_read_clipboard_text,
+    op_write_clipboard_text,
   ],
   esm_entry_point = "ext:uzumaki/00_init.js",
   esm = [ dir "core", "00_init.js" ],
@@ -1049,12 +1083,16 @@ impl Application {
         // Create GPU context
         let gpu = pollster::block_on(GpuContext::new()).expect("Failed to create GPU context");
 
+        let system_clipboard = clipboard::SystemClipboard::new()
+            .expect("failed to initialize system clipboard");
+
         let app_state = Rc::new(RefCell::new(AppState {
             gpu,
             windows: HashMap::new(),
             winit_id_to_entry_id: HashMap::new(),
             mouse_buttons: 0,
             modifiers: 0,
+            clipboard: RefCell::new(system_clipboard),
         }));
 
         // Put shared state and event loop proxy into OpState
@@ -1393,46 +1431,117 @@ impl ApplicationHandler<UserEvent> for Application {
                     false
                 };
 
-                // 2. If not prevented, handle input-level processing (text insertion, etc.)
+                // 2. If not prevented, handle clipboard shortcuts, then input-level processing
                 if !prevented {
                     if let Some(event_dispatch::AppEvent::HotReload) = raw_event {
                         // HotReload is already dispatched, nothing more to do
                     } else {
-                        let input_events = {
-                            let mut state = self.app_state.borrow_mut();
-                            state.windows.get_mut(&wid).map(|entry| {
-                                let handle = entry.handle.as_mut().unwrap();
-                                let (redraw, events) = event_dispatch::handle_key_for_input(
-                                    &mut entry.dom,
-                                    handle,
-                                    wid,
+                        // 2a. Check for clipboard shortcuts (Ctrl+C/X/V)
+                        let clipboard_cmd = {
+                            let state = self.app_state.borrow();
+                            let cmd = state.windows.get(&wid).and_then(|entry| {
+                                let mut cb = state.clipboard.borrow_mut();
+                                event_dispatch::build_clipboard_command(
+                                    &entry.dom,
                                     &key_event,
                                     modifiers,
-                                );
+                                    &mut cb,
+                                )
+                            });
+                            cmd
+                        };
+
+                        let clipboard_consumed = if let Some(cmd) = clipboard_cmd {
+                            // Dispatch clipboard event to JS
+                            let clipboard_event =
+                                event_dispatch::clipboard_command_to_event(&cmd, wid);
+                            let clipboard_prevented =
+                                self.dispatch_event_to_js(&clipboard_event);
+
+                            if !clipboard_prevented {
+                                // Apply default clipboard action
+                                let (redraw, follow_up_events) = {
+                                    let mut state = self.app_state.borrow_mut();
+                                    let AppState {
+                                        ref mut windows,
+                                        ref clipboard,
+                                        ..
+                                    } = *state;
+                                    if let Some(entry) = windows.get_mut(&wid) {
+                                        let mut cb = clipboard.borrow_mut();
+                                        event_dispatch::apply_clipboard_command(
+                                            cmd,
+                                            &mut entry.dom,
+                                            wid,
+                                            &mut cb,
+                                        )
+                                    } else {
+                                        (false, Vec::new())
+                                    }
+                                };
                                 if redraw {
                                     needs_redraw = true;
                                 }
-                                events
-                            })
+                                for event in follow_up_events {
+                                    self.dispatch_event_to_js(&event);
+                                }
+                                // Scroll input to cursor after clipboard mutation
+                                if needs_redraw {
+                                    let mut state = self.app_state.borrow_mut();
+                                    if let Some(entry) = state.windows.get_mut(&wid) {
+                                        if let Some(handle) = entry.handle.as_mut() {
+                                            event_dispatch::scroll_input_to_cursor(
+                                                &mut entry.dom,
+                                                handle,
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                            true // clipboard shortcut was consumed
+                        } else {
+                            false
                         };
 
-                        if let Some(events) = input_events {
-                            for event in events {
-                                self.dispatch_event_to_js(&event);
-                            }
-                        }
-
-                        // Handle view text selection shortcuts (only when no input is focused)
-                        {
-                            let mut state = self.app_state.borrow_mut();
-                            if let Some(entry) = state.windows.get_mut(&wid) {
-                                if entry.dom.focused_node.is_none() {
-                                    if event_dispatch::handle_key_for_view_selection(
-                                        &mut entry.dom,
-                                        &key_event,
-                                        modifiers,
-                                    ) {
+                        // 2b. If no clipboard shortcut, handle normal input processing
+                        if !clipboard_consumed {
+                            let input_events = {
+                                let mut state = self.app_state.borrow_mut();
+                                state.windows.get_mut(&wid).map(|entry| {
+                                    let handle = entry.handle.as_mut().unwrap();
+                                    let (redraw, events) =
+                                        event_dispatch::handle_key_for_input(
+                                            &mut entry.dom,
+                                            handle,
+                                            wid,
+                                            &key_event,
+                                            modifiers,
+                                        );
+                                    if redraw {
                                         needs_redraw = true;
+                                    }
+                                    events
+                                })
+                            };
+
+                            if let Some(events) = input_events {
+                                for event in events {
+                                    self.dispatch_event_to_js(&event);
+                                }
+                            }
+
+                            // Handle view text selection shortcuts (only when no input is focused)
+                            {
+                                let mut state = self.app_state.borrow_mut();
+                                if let Some(entry) = state.windows.get_mut(&wid) {
+                                    if entry.dom.focused_node.is_none() {
+                                        if event_dispatch::handle_key_for_view_selection(
+                                            &mut entry.dom,
+                                            &key_event,
+                                            modifiers,
+                                        ) {
+                                            needs_redraw = true;
+                                        }
                                     }
                                 }
                             }

@@ -11,6 +11,9 @@ export const enum EventType {
   Input = 20,
   Focus = 21,
   Blur = 22,
+  Copy = 25,
+  Cut = 26,
+  Paste = 27,
   WindowLoad = 30,
 }
 
@@ -61,6 +64,11 @@ export interface UzumakiInputEvent extends UzumakiEvent {
 
 export interface UzumakiFocusEvent extends UzumakiEvent {}
 
+export interface UzumakiClipboardEvent extends UzumakiEvent {
+  readonly selectionText: string | null;
+  readonly clipboardText: string | null;
+}
+
 export interface EventHandlerMap {
   mousemove: UzumakiMouseEvent;
   mousedown: UzumakiMouseEvent;
@@ -71,6 +79,9 @@ export interface EventHandlerMap {
   input: UzumakiInputEvent;
   focus: UzumakiFocusEvent;
   blur: UzumakiFocusEvent;
+  copy: UzumakiClipboardEvent;
+  cut: UzumakiClipboardEvent;
+  paste: UzumakiClipboardEvent;
   windowload: UzumakiEvent;
 }
 
@@ -90,6 +101,9 @@ const EVENT_NAME_TO_TYPE: Record<string, EventType> = {
   input: EventType.Input,
   focus: EventType.Focus,
   blur: EventType.Blur,
+  copy: EventType.Copy,
+  cut: EventType.Cut,
+  paste: EventType.Paste,
   windowload: EventType.WindowLoad,
 };
 
@@ -120,6 +134,10 @@ function isInputType(t: EventType): boolean {
 
 function isFocusType(t: EventType): boolean {
   return t === EventType.Focus || t === EventType.Blur;
+}
+
+function isClipboardType(t: EventType): boolean {
+  return t === EventType.Copy || t === EventType.Cut || t === EventType.Paste;
 }
 
 interface HandlerEntry {
@@ -439,6 +457,11 @@ export class EventManager {
         inputType: payload?.inputType ?? '',
         data: payload?.data ?? null,
       }) as UzumakiInputEvent;
+    } else if (isClipboardType(type)) {
+      event = Object.assign(base, {
+        selectionText: payload?.selectionText ?? null,
+        clipboardText: payload?.clipboardText ?? null,
+      }) as UzumakiClipboardEvent;
     } else if (isFocusType(type)) {
       event = base as UzumakiFocusEvent;
     } else {

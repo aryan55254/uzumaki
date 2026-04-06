@@ -7,10 +7,12 @@ use crate::{selection::SelectionRange, text_model::TextModel};
 #[derive(Clone, Debug)]
 pub enum EditKind {
     Insert,
+    InsertFromPaste,
     DeleteBackward,
     DeleteForward,
     DeleteWordBackward,
     DeleteWordForward,
+    DeleteByCut,
 }
 
 #[derive(Clone, Debug)]
@@ -148,6 +150,72 @@ impl<TRangeProvider: RangeProvider> BaseInputState<TRangeProvider> {
 
     pub fn text_content(&self) -> String {
         self.model.text()
+    }
+
+    pub fn has_selection(&self) -> bool {
+        !self.range().is_collapsed()
+    }
+
+    /// Insert text for a paste operation. Replaces selection if non-collapsed.
+    pub fn paste_text(&mut self, text: &str) -> Option<EditEvent> {
+        self.sticky_x = None;
+        self.sticky_col = None;
+        if self.disabled {
+            return None;
+        }
+        let text_to_insert;
+        let input = if !self.multiline {
+            text_to_insert = text
+                .chars()
+                .filter(|&c| c != '\n' && c != '\r')
+                .collect::<String>();
+            if text_to_insert.is_empty() {
+                return None;
+            }
+            text_to_insert.as_str()
+        } else {
+            text
+        };
+
+        self.delete_selection();
+
+        let range = self.range();
+        let pos = range.active;
+
+        match self.model.insert(pos, input, 0) {
+            Some(new_pos) => {
+                self.set_cursor(new_pos);
+                self.reset_blink();
+                Some(EditEvent {
+                    kind: EditKind::InsertFromPaste,
+                    inserted: Some(input.to_string()),
+                })
+            }
+            None => None,
+        }
+    }
+
+    /// Delete selected text for a cut operation. Returns the deleted text.
+    pub fn cut_selected_text(&mut self) -> Option<(String, EditEvent)> {
+        self.sticky_x = None;
+        self.sticky_col = None;
+        if self.disabled {
+            return None;
+        }
+        let range = self.range();
+        if range.is_collapsed() {
+            return None;
+        }
+        let text = self.model.text_in_range(range.start(), range.end());
+        self.delete_selection();
+        self.reset_blink();
+        Some((
+            text,
+            EditEvent {
+                kind: EditKind::DeleteByCut,
+                inserted: None,
+            },
+        ))
     }
 
     pub fn insert_text(&mut self, text: &str) -> Option<EditEvent> {
@@ -1667,5 +1735,95 @@ mod tests {
         assert_eq!(is.model.text(), "brand new text");
         assert_eq!(is.model.line_count(), 1);
         assert_eq!(is.range().active, 14);
+    }
+
+    // ── Clipboard helpers ───────────────────────────────────────────
+
+    #[test]
+    fn paste_replaces_selection() {
+        let mut is = input_sel("hello world", 0, 5); // "hello" selected
+        let edit = is.paste_text("goodbye");
+        assert!(edit.is_some());
+        let edit = edit.unwrap();
+        assert!(matches!(edit.kind, super::EditKind::InsertFromPaste));
+        assert_eq!(is.model.text(), "goodbye world");
+        assert_eq!(is.range().active, 7);
+    }
+
+    #[test]
+    fn paste_inserts_at_collapsed_cursor() {
+        let mut is = input_at("hello", 5);
+        let edit = is.paste_text(" world");
+        assert!(edit.is_some());
+        assert_eq!(is.model.text(), "hello world");
+        assert_eq!(is.range().active, 11);
+    }
+
+    #[test]
+    fn cut_deletes_selection_and_returns_text() {
+        let mut is = input_sel("hello world", 0, 5);
+        let result = is.cut_selected_text();
+        assert!(result.is_some());
+        let (text, edit) = result.unwrap();
+        assert_eq!(text, "hello");
+        assert!(matches!(edit.kind, super::EditKind::DeleteByCut));
+        assert_eq!(is.model.text(), " world");
+        assert!(is.range().is_collapsed());
+        assert_eq!(is.range().active, 0);
+    }
+
+    #[test]
+    fn cut_on_collapsed_selection_is_noop() {
+        let mut is = input_at("hello", 3);
+        let result = is.cut_selected_text();
+        assert!(result.is_none());
+        assert_eq!(is.model.text(), "hello");
+        assert_eq!(is.range().active, 3);
+    }
+
+    #[test]
+    fn has_selection_reports_correctly() {
+        let is = input_at("hello", 3);
+        assert!(!is.has_selection());
+
+        let is = input_sel("hello", 1, 4);
+        assert!(is.has_selection());
+    }
+
+    #[test]
+    fn secure_input_has_selection_but_clipboard_blocked_by_caller() {
+        // secure flag is checked by the caller (build_clipboard_command), not InputState
+        let mut is = input_sel("password", 0, 4);
+        is.secure = true;
+        // InputState itself doesn't block — it's the event dispatch that checks secure
+        assert!(is.has_selection());
+        assert_eq!(is.selected_text(), "pass");
+    }
+
+    #[test]
+    fn paste_on_disabled_input_is_noop() {
+        let mut is = input_at("hello", 3);
+        is.disabled = true;
+        let result = is.paste_text("world");
+        assert!(result.is_none());
+        assert_eq!(is.model.text(), "hello");
+    }
+
+    #[test]
+    fn cut_on_disabled_input_is_noop() {
+        let mut is = input_sel("hello", 0, 3);
+        is.disabled = true;
+        let result = is.cut_selected_text();
+        assert!(result.is_none());
+        assert_eq!(is.model.text(), "hello");
+    }
+
+    #[test]
+    fn paste_strips_newlines_in_single_line() {
+        let mut is = input_at("hello", 5);
+        is.multiline = false;
+        let edit = is.paste_text(" world\nfoo");
+        assert!(edit.is_some());
+        assert_eq!(is.model.text(), "hello worldfoo");
     }
 }

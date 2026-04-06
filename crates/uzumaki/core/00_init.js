@@ -30,6 +30,8 @@ Object.defineProperty(globalThis, '__uzumaki_ops_dont_touch_this__', {
     getWindowHeight: ops.op_get_window_height,
     getWindowTitle: ops.op_get_window_title,
     getAncestorPath: ops.op_get_ancestor_path,
+    readClipboardText: ops.op_read_clipboard_text,
+    writeClipboardText: ops.op_write_clipboard_text,
   }),
   writable: false,
   configurable: false,
