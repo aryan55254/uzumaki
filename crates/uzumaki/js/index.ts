@@ -77,7 +77,6 @@ const EVENT_TYPE_MAP: Record<string, EventType> = {
 
   const eventType = EVENT_TYPE_MAP[event.type];
   if (eventType === undefined) return false;
-  console.log('event: ', eventType);
 
   // Always dispatch — no more nodeId guards.
   // Events without a target node will only fire window-level handlers.

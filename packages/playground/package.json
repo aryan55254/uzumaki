@@ -7,7 +7,9 @@
     "react": "^19.2.4"
   },
   "scripts": {
-    "start": "cargo run -p uzumaki --release src/index.tsx"
+    "start": "uzumaki src/index.tsx",
+    "build": "bun build src/index.tsx --target node --outdir dist",
+    "preview": "uzumaki dist/index.js"
   },
   "devDependencies": {
     "@types/react": "^19.2.14"

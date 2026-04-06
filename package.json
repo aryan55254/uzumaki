@@ -4,7 +4,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "pnpm --filter playground start",
+    "start": "pnpm build:core && pnpm copy:binary && pnpm --filter playground start",
+    "copy:binary": "bun scripts/copy-binary.ts --release",
     "build:core": "cargo build --release -p uzumaki",
     "format": "prettier --write ."
   },

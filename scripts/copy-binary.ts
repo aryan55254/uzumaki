@@ -4,6 +4,8 @@ import { fileURLToPath } from 'bun';
 import path from 'node:path';
 import { $ } from 'bun';
 
+console.log('Copying binary...');
+
 const is_release = process.argv.includes('--release');
 
 const binary_name = 'uzumaki';
