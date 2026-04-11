@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { useInput } from 'uzumaki-ui/react';
 
 import {
   NAV_ACTIVE,
@@ -433,20 +432,11 @@ function ScrollDemo() {
 }
 
 function InputDemo() {
-  const [textDisplay, setTextDisplay] = useState('');
-  const [pwLength, setPwLength] = useState(0);
-  const [multiInfo, setMultiInfo] = useState('0 chars, 1 lines');
+  const [textValue, setTextValue] = useState('');
+  const [passwordValue, setPasswordValue] = useState('');
+  const [multiValue, setMultiValue] = useState('');
 
-  const textInput = useInput('', {
-    onChange: (v) => setTextDisplay(v),
-  });
-  const passwordInput = useInput('', {
-    onChange: (v) => setPwLength(v.length),
-  });
-  const multiInput = useInput('', {
-    onChange: (v) =>
-      setMultiInfo(`${v.length} chars, ${v.split('\n').length} lines`),
-  });
+  const multiInfo = `${multiValue.length} chars, ${multiValue.split('\n').length} lines`;
 
   return (
     <view
@@ -468,10 +458,11 @@ function InputDemo() {
           placeholder="Type something..."
           fontSize="16"
           color={TEXT_COLOR}
-          handle={textInput}
+          value={textValue}
+          onChangeText={setTextValue}
         />
         <text fontSize="14" color={SUBTEXT}>
-          {`Value: "${textDisplay}"`}
+          {`Value: "${textValue}"`}
         </text>
       </view>
       <view display="flex" gap="12" items="center">
@@ -481,10 +472,11 @@ function InputDemo() {
           fontSize="16"
           color={TEXT_COLOR}
           secure
-          handle={passwordInput}
+          value={passwordValue}
+          onChangeText={setPasswordValue}
         />
         <text fontSize="14" color={SUBTEXT}>
-          {`Length: ${pwLength}`}
+          {`Length: ${passwordValue.length}`}
         </text>
       </view>
       <view display="flex" gap="12" items="center">
@@ -502,7 +494,8 @@ function InputDemo() {
         fontSize="16"
         color={TEXT_COLOR}
         multiline
-        handle={multiInput}
+        value={multiValue}
+        onChangeText={setMultiValue}
       />
     </view>
   );

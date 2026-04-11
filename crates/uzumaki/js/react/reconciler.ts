@@ -440,8 +440,6 @@ class ViewElement extends BaseElement<Record<string, any>> {
   }
 }
 
-import type { InputHandle } from './useInput';
-
 import { __DEV__ } from '../constants';
 
 const INPUT_ATTR_NAMES = new Set([
@@ -455,8 +453,8 @@ const INPUT_ATTR_NAMES = new Set([
 
 class InputElement extends BaseElement<Record<string, any>> {
   inputAttrs: Record<string, any> = {};
-  handle: InputHandle | null = null;
-  private handleInputListener: ((ev: any) => void) | null = null;
+  private onChangeText: ((value: string) => void) | undefined;
+  private onChangeTextListener: ((ev: any) => void) | null = null;
 
   constructor(windowId: number, props: Record<string, any>) {
     const id = core.createElement(windowId, 'input');
@@ -465,7 +463,7 @@ class InputElement extends BaseElement<Record<string, any>> {
     this.applyStyles();
     this.applyInputAttrs();
     this.applyEvents();
-    this.bindHandle(props.handle);
+    this.bindOnChangeText(props.onChangeText);
   }
 
   private parseProps(props: Record<string, any>): void {
@@ -474,7 +472,7 @@ class InputElement extends BaseElement<Record<string, any>> {
         key === 'children' ||
         key === 'key' ||
         key === 'ref' ||
-        key === 'handle'
+        key === 'onChangeText'
       )
         continue;
       const value = props[key];
@@ -500,40 +498,28 @@ class InputElement extends BaseElement<Record<string, any>> {
     }
   }
 
-  private bindHandle(handle: InputHandle | undefined): void {
-    if (!handle || !handle.__handle) return;
-    this.handle = handle;
-    handle.__nodeId = this.id;
-    handle.__windowId = this.windowId;
-
-    const initial = (handle as any).__initialValue;
-    if (initial) {
-      core.setInputValue(this.windowId, this.id, initial);
-    }
-
-    this.handleInputListener = (ev: any) => {
-      if (this.handle?.__onChange) {
-        this.handle.__onChange(ev.value);
-      }
+  private bindOnChangeText(
+    onChangeText: ((value: string) => void) | undefined,
+  ): void {
+    if (!onChangeText) return;
+    this.onChangeText = onChangeText;
+    this.onChangeTextListener = (ev: any) => {
+      this.onChangeText?.(ev.value);
     };
-    eventManager.addHandlerByName(this.id, 'input', this.handleInputListener);
+    eventManager.addHandlerByName(this.id, 'input', this.onChangeTextListener);
     core.setF32Prop(this.windowId, this.id, PropKey.Interactive, 1);
   }
 
-  private unbindHandle(): void {
-    if (this.handleInputListener) {
+  private unbindOnChangeText(): void {
+    if (this.onChangeTextListener) {
       eventManager.removeHandlerByName(
         this.id,
         'input',
-        this.handleInputListener,
+        this.onChangeTextListener,
       );
-      this.handleInputListener = null;
+      this.onChangeTextListener = null;
     }
-    if (this.handle) {
-      this.handle.__nodeId = null;
-      this.handle.__windowId = null;
-      this.handle = null;
-    }
+    this.onChangeText = undefined;
   }
 
   commitUpdate(
@@ -549,7 +535,7 @@ class InputElement extends BaseElement<Record<string, any>> {
         key === 'children' ||
         key === 'key' ||
         key === 'ref' ||
-        key === 'handle'
+        key === 'onChangeText'
       )
         continue;
       const value = newProps[key];
@@ -571,14 +557,10 @@ class InputElement extends BaseElement<Record<string, any>> {
     this.updateStyles(newStyles);
     this.updateEvents(newEvents);
 
-    const newHandle = newProps.handle;
-    if (newHandle !== this.handle) {
-      this.unbindHandle();
-      this.bindHandle(newHandle);
-    }
-
-    if (this.handle) {
-      delete newInputAttrs.value;
+    const newOnChangeText = newProps.onChangeText;
+    if (newOnChangeText !== this.onChangeText) {
+      this.unbindOnChangeText();
+      this.bindOnChangeText(newOnChangeText);
     }
 
     for (const [key, val] of Object.entries(newInputAttrs)) {
@@ -590,7 +572,7 @@ class InputElement extends BaseElement<Record<string, any>> {
   }
 
   override destroy(): void {
-    this.unbindHandle();
+    this.unbindOnChangeText();
     super.destroy();
   }
 

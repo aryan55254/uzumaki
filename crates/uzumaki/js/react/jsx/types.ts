@@ -6,7 +6,6 @@ import type {
   UzumakiInputEvent,
   UzumakiFocusEvent,
 } from '../../events';
-import type { InputHandle } from '../useInput';
 
 interface ElementStyles {
   h?: number | string;
@@ -109,13 +108,13 @@ export namespace JSX {
       };
     input: ElementAttributes &
       EventProps & {
-        handle?: InputHandle;
         value?: string;
         placeholder?: string;
         disabled?: boolean;
         maxLength?: number;
         multiline?: boolean;
         secure?: boolean;
+        onChangeText?: (value: string) => void;
         onInput?: (ev: UzumakiInputEvent) => void;
         onFocus?: (ev: UzumakiFocusEvent) => void;
         onBlur?: (ev: UzumakiFocusEvent) => void;
