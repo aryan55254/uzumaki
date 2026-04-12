@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TEMPLATE_DIR = path.join(__dirname, "template");
+const TEMPLATE_DIR = path.join(__dirname, 'template');
 
-const BOLD = "\x1b[1m";
-const RESET = "\x1b[0m";
-const BLUE = "\x1b[38;5;75m";
-const GREEN = "\x1b[32m";
-const RED = "\x1b[31m";
-const DIM = "\x1b[2m";
+const BOLD = '\u001B[1m';
+const RESET = '\u001B[0m';
+const BLUE = '\u001B[38;5;75m';
+const GREEN = '\u001B[32m';
+const RED = '\u001B[31m';
+const DIM = '\u001B[2m';
 
 function log(msg) {
   console.log(msg);
@@ -32,39 +32,45 @@ function copyDirSync(src, dest) {
 }
 
 function replaceVars(filePath, vars) {
-  let content = fs.readFileSync(filePath, "utf8");
+  let content = fs.readFileSync(filePath, 'utf8');
   for (const [key, value] of Object.entries(vars)) {
     content = content.replaceAll(`{{${key}}}`, value);
   }
-  fs.writeFileSync(filePath, content, "utf8");
+  fs.writeFileSync(filePath, content, 'utf8');
 }
 
 function main() {
   const args = process.argv.slice(2);
   const targetArg = args[0];
 
-  if (targetArg === "--help" || targetArg === "-h") {
-    log(`\n${BOLD}${BLUE}create-uzumaki${RESET} — Scaffold a new Uzumaki desktop app\n`);
+  if (targetArg === '--help' || targetArg === '-h') {
+    log(
+      `\n${BOLD}${BLUE}create-uzumaki${RESET} — Scaffold a new Uzumaki desktop app\n`,
+    );
     log(`  Usage: pnpm create uzumaki ${DIM}[directory]${RESET}\n`);
     process.exit(0);
   }
 
-  const projectDir = path.resolve(process.cwd(), targetArg ?? ".");
+  const projectDir = path.resolve(process.cwd(), targetArg ?? '.');
   const projectName = path.basename(projectDir);
 
   if (fs.existsSync(projectDir) && fs.readdirSync(projectDir).length > 0) {
-    log(`${RED}error:${RESET} directory ${DIM}${projectDir}${RESET} is not empty`);
+    log(
+      `${RED}error:${RESET} directory ${DIM}${projectDir}${RESET} is not empty`,
+    );
     process.exit(1);
   }
 
-  log(`\n${BOLD}${BLUE}Uzumaki${RESET} Creating project ${BOLD}${projectName}${RESET}...\n`);
+  log(
+    `\n${BOLD}${BLUE}Uzumaki${RESET} Creating project ${BOLD}${projectName}${RESET}...\n`,
+  );
 
   copyDirSync(TEMPLATE_DIR, projectDir);
 
   const filesToTemplate = [
-    path.join(projectDir, "package.json"),
-    path.join(projectDir, "uzumaki.config.json"),
-    path.join(projectDir, "src", "index.tsx"),
+    path.join(projectDir, 'package.json'),
+    path.join(projectDir, 'uzumaki.config.json'),
+    path.join(projectDir, 'src', 'index.tsx'),
   ];
 
   for (const file of filesToTemplate) {
@@ -82,9 +88,9 @@ function main() {
   if (targetArg) {
     log(`  cd ${projectName}`);
   }
-  log("  pnpm install");
-  log("  pnpm dev");
-  log("");
+  log('  pnpm install');
+  log('  pnpm dev');
+  log('');
 }
 
 main();
