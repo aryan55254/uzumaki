@@ -1,6 +1,7 @@
 {
   "name": "uzumaki-ui",
   "type": "module",
+  "version": "0.0.1",
   "bin": {
     "uzumaki": "./cli/main.ts"
   },
@@ -25,6 +26,15 @@
     "README.md",
     "bin/**/*",
     "js/**/*"
+  ],
+  "keywords": [
+    "desktop",
+    "ui",
+    "react",
+    "native",
+    "gpu",
+    "wgpu",
+    "vello"
   ],
   "scripts": {
     "start": "bun js/index.js",
