@@ -1,12 +1,11 @@
 name: Publish
 
 on:
-  # Runs after a GitHub Release is created (by the release workflow)
-  release:
-    types: [published]
-
-  # Can also be triggered manually to retry a failed publish
   workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   publish:
@@ -22,13 +21,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
-          registry-url: https://registry.npmjs.org
+          registry-url: 'https://registry.npmjs.org'
 
       - run: pnpm install --frozen-lockfile
 
       - name: Publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: pnpm -r publish --access public --no-git-checks
