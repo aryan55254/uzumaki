@@ -1,6 +1,4 @@
-pub mod cli;
 pub mod runtime;
-pub mod standalone;
 
 pub mod clipboard;
 pub mod element;
@@ -53,10 +51,23 @@ mod prop_keys {
     include!(concat!(env!("OUT_DIR"), "/prop_keys.rs"));
 }
 
-pub static UZUMAKI_SNAPSHOT: Option<&[u8]> = Some(include_bytes!(concat!(
-    env!("OUT_DIR"),
-    "/UZUMAKI_SNAPSHOT.bin"
-)));
+pub use deno_core;
+pub use deno_runtime;
+pub use rustls;
+
+pub static TS_VERSION: &str = "5.9.2";
+
+#[cfg(feature = "snapshot")]
+pub fn create_snapshot(
+    snapshot_path: std::path::PathBuf,
+    snapshot_options: deno_runtime::ops::bootstrap::SnapshotOptions,
+) {
+    deno_runtime::snapshot::create_runtime_snapshot(
+        snapshot_path,
+        snapshot_options,
+        vec![uzumaki::init()],
+    );
+}
 
 pub struct WindowEntry {
     pub dom: Dom,
@@ -960,11 +971,11 @@ extension!(
     op_read_clipboard_text,
     op_write_clipboard_text,
   ],
-  esm_entry_point = "ext:uzumaki/00_init.js",
-  esm = [ dir "core", "00_init.js" ],
+  esm_entry_point = "ext:uzumaki/runtime.js",
+  esm = [ dir "core", "runtime.js" ],
 );
 
-struct Application {
+pub struct Application {
     // for now lets use this, we should write our own runtime in future :p
     worker: MainWorker,
     app_state: SharedAppState,
@@ -972,7 +983,7 @@ struct Application {
     app_root: PathBuf,
     event_loop: Option<winit::event_loop::EventLoop<UserEvent>>,
     module_loaded: bool,
-    tokio_runtime: Option<tokio::runtime::Runtime>,
+    pub tokio_runtime: Option<tokio::runtime::Runtime>,
     global_app_event_dispatch_fn: Option<v8::Global<v8::Function>>,
 }
 
@@ -980,6 +991,7 @@ impl Application {
     pub fn new_with_root(
         main_file: impl Into<PathBuf>,
         app_root: impl Into<PathBuf>,
+        startup_snapshot: Option<&'static [u8]>,
     ) -> Result<Self> {
         let main_file: PathBuf = main_file.into();
         let app_root: PathBuf = app_root.into();
@@ -1073,7 +1085,7 @@ impl Application {
 
         let options = WorkerOptions {
             extensions: vec![uzumaki::init()],
-            startup_snapshot: UZUMAKI_SNAPSHOT,
+            startup_snapshot,
             skip_op_registration: false,
             bootstrap: BootstrapOptions {
                 args: vec![],
@@ -1625,52 +1637,4 @@ impl ApplicationHandler<UserEvent> for Application {
             }
         }
     }
-}
-
-// Entry point
-fn main() {
-    #[cfg(target_os = "windows")]
-    unsafe {
-        std::env::set_var("WGPU_POWER_PREF", "high");
-    }
-
-    rustls::crypto::aws_lc_rs::default_provider()
-        .install_default()
-        .expect("failed to install rustls crypto provider");
-
-    // Standalone-first: if the current executable carries an embedded payload,
-    // always run it, ignoring any CLI args. This is what enables a
-    // double-clicked `MyApp.exe` to "just work".
-    match standalone::detect_and_prepare() {
-        Ok(Some(mode)) => {
-            run_launch_mode(mode);
-            return;
-        }
-        Ok(None) => {}
-        Err(err) => {
-            eprintln!("uzumaki: failed to read embedded standalone payload: {err}");
-            std::process::exit(1);
-        }
-    }
-
-    // Not a standalone executable — use clap-based CLI.
-    match cli::run_cli() {
-        Ok(Some(mode)) => run_launch_mode(mode),
-        Ok(None) => {} // Command handled (build/pack/update) or help printed
-        Err(err) => {
-            eprintln!("\x1b[1;31merror:\x1b[0m {err:#}");
-            std::process::exit(1);
-        }
-    }
-}
-
-fn run_launch_mode(mode: standalone::LaunchMode) {
-    let tokio_runtime = deno_runtime::tokio_util::create_basic_runtime();
-    let entry = mode.entry_path().to_path_buf();
-    let app_root = mode.app_root().to_path_buf();
-    let mut app = tokio_runtime.block_on(async {
-        Application::new_with_root(entry, app_root).expect("error creating application")
-    });
-    app.tokio_runtime = Some(tokio_runtime);
-    app.run().expect("error running application");
 }

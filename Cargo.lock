@@ -9205,16 +9205,30 @@ name = "uzumaki"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap",
+ "libsui",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "ureq",
+ "uzumaki_runtime",
+ "winapi",
+ "zip",
+]
+
+[[package]]
+name = "uzumaki_runtime"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "arboard",
  "async-trait",
- "clap",
  "cosmic-text",
  "deno_ast",
  "deno_core",
  "deno_error",
  "deno_resolver",
  "deno_runtime",
- "libsui",
  "node_resolver",
  "pollster",
  "refineable",
@@ -9224,15 +9238,12 @@ dependencies = [
  "slotmap",
  "sys_traits",
  "taffy",
- "tempfile",
  "tokio",
  "unicode-segmentation",
- "ureq",
  "vello",
  "wgpu",
  "winapi",
  "winit",
- "zip",
 ]
 
 [[package]]

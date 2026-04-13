@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [ "crates/uzumaki", "crates/refineable"]
+members = [ "crates/uzumaki", "crates/cli", "crates/refineable"]
 
 [workspace.package]
 publish = false
@@ -23,6 +23,7 @@ clap = { version = "4", features = ["derive", "color"] }
 ureq = "3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 tempfile = "3"
+tokio = "1"
 
 
 [profile.dist]

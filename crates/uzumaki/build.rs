@@ -1,22 +1,11 @@
-use deno_core::*;
 use std::fs;
 use std::path::Path;
 
-extension!(
-  uzumaki,
-  esm_entry_point = "ext:uzumaki/00_init.js",
-  esm = [ dir "core", "00_init.js" ],
-);
-
-pub static TS_VERSION: &str = "5.9.2";
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
     let o = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
     generate_prop_key_bindings(&o);
-
-    let cli_snapshot_path = o.join("UZUMAKI_SNAPSHOT.bin");
-    create_uz_snapshot(cli_snapshot_path);
 }
 
 const PROP_KEYS: &[(&str, u32)] = &[
@@ -144,16 +133,4 @@ fn write_if_changed(path: &Path, contents: &str) {
     fs::write(path, contents).unwrap_or_else(|err| {
         panic!("failed to write {}: {err}", path.display());
     });
-}
-
-fn create_uz_snapshot(snapshot_path: std::path::PathBuf) {
-    use deno_runtime::ops::bootstrap::SnapshotOptions;
-
-    let snapshot_options = SnapshotOptions {
-        ts_version: TS_VERSION.to_string(),
-        v8_version: deno_runtime::deno_core::v8::VERSION_STRING,
-        target: std::env::var("TARGET").unwrap(),
-    };
-
-    deno_runtime::snapshot::create_runtime_snapshot(snapshot_path, snapshot_options, vec![]);
 }

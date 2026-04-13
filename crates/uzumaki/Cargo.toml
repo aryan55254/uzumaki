@@ -1,13 +1,13 @@
 [package]
-name = "uzumaki"
+name = "uzumaki_runtime"
 version = "0.1.0"
 edition.workspace = true
 
-[build-dependencies]
-deno_runtime = { workspace = true, features = ["include_js_files_for_snapshotting", "only_snapshotted_js_sources", "snapshot"] }
-deno_core = { workspace = true, features = ["include_js_files_for_snapshotting"] }
-# https://github.com/denoland/deno/discussions/32444#discussioncomment-15993969
-winapi = { version = "=0.3.9", features = ["std"]}
+[lib]
+name = "uzumaki_runtime"
+
+[features]
+snapshot = ["deno_runtime/only_snapshotted_js_sources", "deno_runtime/snapshot"]
 
 [dependencies]
 # utils
@@ -17,13 +17,8 @@ serde_json.workspace = true
 unicode-segmentation = "1.11"
 pollster.workspace = true
 anyhow.workspace = true
-clap.workspace = true
-ureq.workspace = true
-zip.workspace = true
-tempfile.workspace = true
 arboard = "3.6.1"
-libsui = "0.14"
-tokio = { version = "1", features = ["rt", "time"] }
+tokio = { workspace = true, features = ["rt", "time"] }
 # Deno deps
 deno_runtime = { workspace = true, features = ["include_js_files_for_snapshotting"] }
 deno_core = { workspace = true, features = ["include_js_files_for_snapshotting"] }
