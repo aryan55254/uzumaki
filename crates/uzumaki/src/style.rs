@@ -299,7 +299,7 @@ pub enum TextSelectable {
 
 impl From<bool> for TextSelectable {
     fn from(value: bool) -> Self {
-        value.then_some(Self::True).unwrap_or(Self::False)
+        if value { Self::True } else { Self::False }
     }
 }
 

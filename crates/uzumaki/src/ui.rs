@@ -371,12 +371,10 @@ impl UIState {
             content: text.clone(),
         };
 
-        if node.is_text_node() {
-            node.as_text_node_mut().and_then(|node| {
-                node.content = text;
-                Some(())
-            });
+        if let Some(text_node) = node.as_text_node_mut() {
+            text_node.content = text;
         }
+
         let taffy_node = node.taffy_node;
         let font_size = node.style.text.font_size;
         self.taffy
