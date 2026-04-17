@@ -1,8 +1,21 @@
-# Uzumaki
+<div align="center">
+  <img src="etc/logo.svg" width="140" alt="Uzumaki logo" />
 
-Native desktop UI framework for JavaScript/TypeScript. GPU-rendered with **wgpu** + **Vello**, powered by a **Deno** runtime. Write your UI in React.
+  <h1>Uzumaki</h1>
 
-![logo](etc/logo.svg)
+  <p>Native desktop UI framework for JavaScript/TypeScript.<br/>
+  GPU-rendered with <strong>wgpu</strong> + <strong>Vello</strong>, powered by a <strong>Deno</strong> runtime. Write your UI in React.</p>
+
+[![CI](https://github.com/golok727/uzumaki/actions/workflows/ci.yml/badge.svg)](https://github.com/golok727/uzumaki/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE-MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE-APACHE)
+[![npm](https://img.shields.io/npm/v/uzumaki-ui?color=cb3837&logo=npm)](https://www.npmjs.com/package/uzumaki-ui)
+[![GitHub stars](https://img.shields.io/github/stars/golok727/uzumaki?style=flat&logo=github)](https://github.com/golok727/uzumaki/stargazers)
+[![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange?logo=rust)](https://www.rust-lang.org/)
+[![Powered by Deno](https://img.shields.io/badge/runtime-Deno-black?logo=deno)](https://deno.com/)
+[![wgpu](https://img.shields.io/badge/renderer-wgpu%20%2B%20vello-purple)](#)
+
+</div>
 
 > [!WARNING]
 > Uzumaki is in alpha. The API is unstable and will change. Do not use in production.
