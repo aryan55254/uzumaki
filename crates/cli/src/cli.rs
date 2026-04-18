@@ -9,8 +9,6 @@ use crate::standalone;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const GITHUB_REPO: &str = "golok727/uzumaki";
 
-// ─── Config ────────────────────────────────────────────────────────────────
-
 #[derive(Debug, serde::Deserialize)]
 pub struct UzumakiConfig {
     #[serde(rename = "productName")]
@@ -55,8 +53,6 @@ fn load_config(path: &Path) -> Result<UzumakiConfig> {
     let raw = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     serde_json::from_str(&raw).with_context(|| format!("parsing {}", path.display()))
 }
-
-// ─── CLI ───────────────────────────────────────────────────────────────────
 
 #[derive(Parser)]
 #[command(
@@ -118,15 +114,12 @@ fn clap_styles() -> clap::builder::Styles {
         .placeholder(clap::builder::styling::AnsiColor::White.on_default())
 }
 
-// ─── Command implementations ───────────────────────────────────────────────
-
 /// Known subcommand names so we can distinguish `uzumaki build` from `uzumaki app.tsx`.
 const KNOWN_SUBCOMMANDS: &[&str] = &["run", "build", "init", "upgrade", "help"];
 
 pub fn run_cli() -> Result<Option<standalone::LaunchMode>> {
     let raw_args: Vec<String> = std::env::args().collect();
 
-    // No args → print help and exit successfully
     if raw_args.len() <= 1 {
         Cli::command().print_help().ok();
         println!();
@@ -171,8 +164,6 @@ fn resolve_run(entry: &str) -> Result<standalone::LaunchMode> {
         entry_path,
     })
 }
-
-// ─── build ─────────────────────────────────────────────────────────────────
 
 fn cmd_build(config_path: Option<&str>, no_build: bool) -> Result<()> {
     let cwd = std::env::current_dir()?;
@@ -372,8 +363,6 @@ fn replace_exe(current_exe: &Path, new_bytes: &[u8]) -> Result<()> {
 
     Ok(())
 }
-
-// ─── Helpers ───────────────────────────────────────────────────────────────
 
 fn resolve_from(base: &Path, value: &str) -> PathBuf {
     let p = Path::new(value);

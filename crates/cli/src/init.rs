@@ -3,14 +3,10 @@ use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 
-// ─── Embedded templates (separate files, included at compile time) ────────
-
 const TMPL_PACKAGE_JSON: &str = include_str!("../template/package.json");
 const TMPL_TSCONFIG: &str = include_str!("../template/tsconfig.json");
 const TMPL_CONFIG: &str = include_str!("../template/uzumaki.config.json");
 const TMPL_INDEX_TSX: &str = include_str!("../template/index.tsx");
-
-// ─── Helpers ──────────────────────────────────────────────────────────────
 
 const BOLD: &str = "\x1b[1m";
 const RESET: &str = "\x1b[0m";
@@ -75,8 +71,6 @@ fn write_template_file(
     fs::write(&dest, apply_vars(template, vars))?;
     Ok(())
 }
-
-// ─── Init command ─────────────────────────────────────────────────────────
 
 pub fn cmd_init(target_dir: Option<&str>) -> Result<()> {
     println!("\n{BOLD}{BLUE}Uzumaki{RESET} — Project Setup\n");

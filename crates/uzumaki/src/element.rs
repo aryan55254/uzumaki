@@ -186,7 +186,9 @@ impl NodeData {
     pub fn default_cursor(&self) -> Option<UzCursorIcon> {
         match self {
             Self::Element(element) => element.data.default_cursor(),
-            Self::Text(_) => Some(UzCursorIcon::Text),
+            // Plain text labels should inherit the cursor from their container.
+            // Text cursor is handled separately for inputs and textSelect content.
+            Self::Text(_) => None,
             _ => None,
         }
     }

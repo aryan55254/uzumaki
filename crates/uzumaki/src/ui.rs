@@ -562,7 +562,7 @@ impl UIState {
 #[cfg(test)]
 mod tests {
     use super::UIState;
-    use crate::style::Bounds;
+    use crate::{cursor::UzCursorIcon, style::Bounds};
 
     #[test]
     fn refresh_hit_test_retargets_stationary_pointer_after_hitboxes_change() {
@@ -596,5 +596,17 @@ mod tests {
         assert!(dom.refresh_hit_test());
         assert_eq!(dom.hit_state.top_node, Some(second));
         assert_eq!(dom.hit_state.active_node, Some(first));
+    }
+
+    #[test]
+    fn plain_text_inherits_cursor_from_parent() {
+        let mut dom = UIState::new();
+        let parent = dom.create_view(Default::default());
+        let child = dom.create_text("pointer".into(), Default::default());
+
+        dom.append_child(parent, child);
+        dom.nodes[parent].style.cursor = Some(UzCursorIcon::Pointer);
+
+        assert_eq!(dom.resolve_cursor(child), UzCursorIcon::Pointer);
     }
 }

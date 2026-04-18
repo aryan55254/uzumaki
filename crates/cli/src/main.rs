@@ -20,8 +20,7 @@ fn main() {
         .expect("failed to install rustls crypto provider");
 
     // Standalone-first: if the current executable carries an embedded payload,
-    // always run it, ignoring any CLI args. This is what enables a
-    // double-clicked `MyApp.exe` to "just work".
+    // always run it, ignoring any CLI args.
     match standalone::detect_and_prepare() {
         Ok(Some(mode)) => {
             run_launch_mode(mode);
@@ -34,7 +33,7 @@ fn main() {
         }
     }
 
-    // Not a standalone executable — use clap-based CLI.
+    // Not a standalone executable
     match cli::run_cli() {
         Ok(Some(mode)) => run_launch_mode(mode),
         Ok(None) => {} // Command handled (build/pack/update) or help printed
