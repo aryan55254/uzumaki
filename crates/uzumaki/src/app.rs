@@ -102,6 +102,10 @@ pub(crate) enum UserEvent {
         width: u32,
         height: u32,
         title: String,
+        visible: bool,
+        resizable: bool,
+        maximized: bool,
+        decorations: bool,
     },
     RequestRedraw {
         id: u32,
@@ -434,6 +438,10 @@ impl ApplicationHandler<UserEvent> for Application {
                 width,
                 height,
                 title,
+                visible,
+                resizable,
+                maximized,
+                decorations,
             } => {
                 let attributes = winit::window::WindowAttributes::default()
                     .with_title(title)
@@ -442,7 +450,11 @@ impl ApplicationHandler<UserEvent> for Application {
                     )))
                     .with_min_inner_size(winit::dpi::Size::new(winit::dpi::LogicalSize::new(
                         400, 300,
-                    )));
+                    )))
+                    .with_visible(visible)
+                    .with_resizable(resizable)
+                    .with_maximized(maximized)
+                    .with_decorations(decorations);
 
                 let is_visible = attributes.visible;
 

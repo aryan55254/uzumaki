@@ -13,6 +13,10 @@ export interface WindowAttributes {
   width: number;
   height: number;
   title: string;
+  visible?: boolean;
+  resizable?: boolean;
+  maximized?: boolean;
+  decorations?: boolean;
 }
 
 export class Window {
@@ -30,6 +34,10 @@ export class Window {
       width = 800,
       height = 600,
       title = 'uzumaki',
+      visible = true,
+      resizable = true,
+      maximized = false,
+      decorations = true,
     }: Partial<WindowAttributes> = {},
   ) {
     const existing = windowsByLabel.get(label);
@@ -40,7 +48,15 @@ export class Window {
     this._width = width;
     this._height = height;
     this._label = label;
-    this._id = core.createWindow({ width, height, title });
+    this._id = core.createWindow({
+      width,
+      height,
+      title,
+      visible,
+      resizable,
+      maximized,
+      decorations,
+    });
     windowsByLabel.set(label, this);
     windowsById.set(this._id, this);
   }
@@ -92,6 +108,38 @@ export class Window {
   set remBase(value: number) {
     this._remBase = value;
     core.setRemBase(this._id, value);
+  }
+
+  get visible(): boolean {
+    return core.getWindowVisible(this._id);
+  }
+
+  set visible(value: boolean) {
+    core.setWindowVisible(this._id, value);
+  }
+
+  get resizable(): boolean {
+    return core.getWindowResizable(this._id);
+  }
+
+  set resizable(value: boolean) {
+    core.setWindowResizable(this._id, value);
+  }
+
+  get maximized(): boolean {
+    return core.getWindowMaximized(this._id);
+  }
+
+  set maximized(value: boolean) {
+    core.setWindowMaximized(this._id, value);
+  }
+
+  get decorations(): boolean {
+    return core.getWindowDecorations(this._id);
+  }
+
+  set decorations(value: boolean) {
+    core.setWindowDecorations(this._id, value);
   }
 
   on<K extends EventName>(

@@ -6,6 +6,10 @@ interface Core {
     width: number;
     height: number;
     title: string;
+    visible?: boolean;
+    resizable?: boolean;
+    maximized?: boolean;
+    decorations?: boolean;
   }): number;
   requestClose(): void;
   requestRedraw(windowId: number): void;
@@ -73,6 +77,14 @@ interface Core {
   getWindowWidth(windowId: number): number | null;
   getWindowHeight(windowId: number): number | null;
   getWindowTitle(windowId: number): string | null;
+  setWindowVisible(windowId: number, visible: boolean): void;
+  setWindowResizable(windowId: number, resizable: boolean): void;
+  setWindowMaximized(windowId: number, maximized: boolean): void;
+  setWindowDecorations(windowId: number, decorations: boolean): void;
+  getWindowVisible(windowId: number): boolean;
+  getWindowResizable(windowId: number): boolean;
+  getWindowMaximized(windowId: number): boolean;
+  getWindowDecorations(windowId: number): boolean;
   getAncestorPath(windowId: number, nodeId: NodeId): NodeId[];
   getSelection(windowId: number): SelectionState | null;
   getSelectedText(windowId: number): string;

@@ -6,10 +6,23 @@ use crate::style::*;
 use crate::ui::UIState;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct CreateWindowOptions {
     width: u32,
     height: u32,
     title: String,
+    #[serde(default = "default_true")]
+    visible: bool,
+    #[serde(default = "default_true")]
+    resizable: bool,
+    #[serde(default)]
+    maximized: bool,
+    #[serde(default = "default_true")]
+    decorations: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[op2]
@@ -51,6 +64,10 @@ pub fn op_create_window(
             width: options.width,
             height: options.height,
             title: options.title,
+            visible: options.visible,
+            resizable: options.resizable,
+            maximized: options.maximized,
+            decorations: options.decorations,
         })
         .map_err(|_| {
             deno_error::JsErrorBox::new(
@@ -157,4 +174,101 @@ pub fn op_write_clipboard_text(state: &mut OpState, #[string] text: String) -> b
             false
         }
     }
+}
+
+#[op2(fast)]
+pub fn op_set_window_visible(state: &mut OpState, #[smi] window_id: u32, visible: bool) {
+    let app_state = state.borrow::<SharedAppState>().clone();
+    with_state(&app_state, |s| {
+        if let Some(entry) = s.windows.get(&window_id) {
+            if let Some(h) = entry.handle.as_ref() {
+                h.winit_window.set_visible(visible);
+            }
+        }
+    });
+}
+
+#[op2(fast)]
+pub fn op_set_window_resizable(state: &mut OpState, #[smi] window_id: u32, resizable: bool) {
+    let app_state = state.borrow::<SharedAppState>().clone();
+    with_state(&app_state, |s| {
+        if let Some(entry) = s.windows.get(&window_id) {
+            if let Some(h) = entry.handle.as_ref() {
+                h.winit_window.set_resizable(resizable);
+            }
+        }
+    });
+}
+
+#[op2(fast)]
+pub fn op_set_window_maximized(state: &mut OpState, #[smi] window_id: u32, maximized: bool) {
+    let app_state = state.borrow::<SharedAppState>().clone();
+    with_state(&app_state, |s| {
+        if let Some(entry) = s.windows.get(&window_id) {
+            if let Some(h) = entry.handle.as_ref() {
+                h.winit_window.set_maximized(maximized);
+            }
+        }
+    });
+}
+
+#[op2(fast)]
+pub fn op_set_window_decorations(state: &mut OpState, #[smi] window_id: u32, decorations: bool) {
+    let app_state = state.borrow::<SharedAppState>().clone();
+    with_state(&app_state, |s| {
+        if let Some(entry) = s.windows.get(&window_id) {
+            if let Some(h) = entry.handle.as_ref() {
+                h.winit_window.set_decorations(decorations);
+            }
+        }
+    });
+}
+
+#[op2(fast)]
+pub fn op_get_window_visible(state: &mut OpState, #[smi] window_id: u32) -> bool {
+    let app_state = state.borrow::<SharedAppState>().clone();
+    with_state(&app_state, |s| {
+        s.windows
+            .get(&window_id)
+            .and_then(|entry| {
+                entry
+                    .handle
+                    .as_ref()
+                    .map(|h| h.winit_window.is_visible().unwrap_or(false))
+            })
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn op_get_window_resizable(state: &mut OpState, #[smi] window_id: u32) -> bool {
+    let app_state = state.borrow::<SharedAppState>().clone();
+    with_state(&app_state, |s| {
+        s.windows
+            .get(&window_id)
+            .and_then(|entry| entry.handle.as_ref().map(|h| h.winit_window.is_resizable()))
+            .unwrap_or(true)
+    })
+}
+
+#[op2(fast)]
+pub fn op_get_window_maximized(state: &mut OpState, #[smi] window_id: u32) -> bool {
+    let app_state = state.borrow::<SharedAppState>().clone();
+    with_state(&app_state, |s| {
+        s.windows
+            .get(&window_id)
+            .and_then(|entry| entry.handle.as_ref().map(|h| h.winit_window.is_maximized()))
+            .unwrap_or(false)
+    })
+}
+
+#[op2(fast)]
+pub fn op_get_window_decorations(state: &mut OpState, #[smi] window_id: u32) -> bool {
+    let app_state = state.borrow::<SharedAppState>().clone();
+    with_state(&app_state, |s| {
+        s.windows
+            .get(&window_id)
+            .and_then(|entry| entry.handle.as_ref().map(|h| h.winit_window.is_decorated()))
+            .unwrap_or(true)
+    })
 }
